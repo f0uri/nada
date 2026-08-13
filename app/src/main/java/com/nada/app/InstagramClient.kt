@@ -249,13 +249,100 @@ class InstagramClient {
     private fun packProfile(user: JSONObject): JSONObject {
         val avatar = user.optString("profile_pic_url_hd").ifBlank { user.optString("profile_pic_url") }
             .replace("\\u0026", "&")
+        val followers = user.optJSONObject("edge_followed_by")?.opt("count") ?: user.opt("follower_count")
+        val following = user.optJSONObject("edge_follow")?.opt("count") ?: user.opt("following_count")
+        val posts = user.optJSONObject("edge_owner_to_timeline_media")?.opt("count") ?: user.opt("media_count")
         return JSONObject()
             .put("ok", true)
             .put("username", user.optString("username"))
             .put("name", user.optString("full_name"))
             .put("bio", user.optString("biography"))
             .put("private", user.optBoolean("is_private"))
+            .put("followers", followers)
+            .put("following", following)
+            .put("posts", posts)
             .put("avatar", if (avatar.isNotBlank() && hostOk(avatar)) signUrl(avatar) else JSONObject.NULL)
+            .put("stories", JSONArray())
+    }
+
+    private fun igGet(url: String, referer: String): JSONObject? {
+        val token = runCatching { ensureCsrf() }.getOrNull() ?: return null
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", UA)
+            .header("x-ig-app-id", APP_ID)
+            .header("x-asbd-id", "359341")
+            .header("x-csrftoken", token)
+            .header("x-ig-www-claim", "0")
+            .header("x-requested-with", "XMLHttpRequest")
+            .header("referer", referer)
+            .build()
+        return client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            runCatching { JSONObject(response.body?.string().orEmpty().ifBlank { "{}" }) }.getOrNull()
+        }
+    }
+
+    private fun attachStories(profile: JSONObject, user: JSONObject): JSONObject {
+        val stories = JSONArray()
+        val userId = user.optString("id").ifBlank { user.optString("pk") }
+        if (userId.isNotBlank()) {
+            val live = igGet(
+                "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$userId",
+                "https://www.instagram.com/",
+            )
+            val liveItems = live?.optJSONObject("reels")?.optJSONObject(userId)?.optJSONArray("items") ?: JSONArray()
+            for (i in 0 until liveItems.length()) {
+                packMedia(liveItems.getJSONObject(i), stories.length() + 1)?.let {
+                    it.put("title", "قصة")
+                    stories.put(it)
+                }
+            }
+            val highlights = igGet(
+                "https://www.instagram.com/api/v1/highlights/$userId/highlights_tray/",
+                "https://www.instagram.com/",
+            )?.optJSONArray("tray") ?: JSONArray()
+            for (i in 0 until minOf(highlights.length(), 12)) {
+                val hl = highlights.optJSONObject(i) ?: continue
+                val hid = hl.optString("id").removePrefix("highlight:")
+                val title = hl.optString("title").ifBlank { "هايلايت" }.take(18)
+                if (hid.isBlank()) continue
+                val detail = igGet(
+                    "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:$hid",
+                    "https://www.instagram.com/",
+                )
+                val items = detail?.optJSONObject("reels")
+                    ?.optJSONObject("highlight:$hid")
+                    ?.optJSONArray("items") ?: JSONArray()
+                for (j in 0 until items.length()) {
+                    packMedia(items.getJSONObject(j), stories.length() + 1)?.let {
+                        it.put("title", title)
+                        stories.put(it)
+                    }
+                }
+            }
+        }
+        if (stories.length() == 0) {
+            val edges = user.optJSONObject("edge_highlight_reels")?.optJSONArray("edges") ?: JSONArray()
+            for (i in 0 until minOf(edges.length(), 12)) {
+                val node = edges.optJSONObject(i)?.optJSONObject("node") ?: continue
+                val cover = node.optJSONObject("cover_media")?.optString("thumbnail_src").orEmpty()
+                val title = node.optString("title").ifBlank { "هايلايت" }.take(18)
+                if (cover.isNotBlank() && hostOk(cover)) {
+                    stories.put(
+                        JSONObject()
+                            .put("id", node.optString("id").ifBlank { title })
+                            .put("kind", "image")
+                            .put("preview", signUrl(cover))
+                            .put("file", signUrl(cover))
+                            .put("ext", "jpg")
+                            .put("title", title),
+                    )
+                }
+            }
+        }
+        profile.put("stories", stories)
+        return profile
     }
 
     private fun profileFromHtml(username: String): JSONObject {
