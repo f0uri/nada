@@ -45,11 +45,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    sourceSets {
-        getByName("main") {
-            assets.directories.add(rootProject.layout.projectDirectory.dir("static"))
-        }
-    }
 }
 
 dependencies {

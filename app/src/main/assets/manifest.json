@@ -1,0 +1,13 @@
+{
+  "name": "ندى — Nada",
+  "short_name": "ندى",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#efe6da",
+  "theme_color": "#efe6da",
+  "lang": "ar",
+  "icons": [
+    { "src": "/img/apple-touch.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/img/icon.png", "sizes": "1024x1024", "type": "image/png" }
+  ]
+}
