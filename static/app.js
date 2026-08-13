@@ -35,6 +35,10 @@
       statFollowing: "يتابع",
       storiesTitle: "ستوريات",
       storiesEmpty: "لا توجد ستوريات عامة حالياً.",
+      postsTitle: "المنشورات والريلز",
+      morePosts: "المزيد",
+      clipTitle: "رابط في الحافظة",
+      clipGo: "جلب",
       a1t: "للمنشورات العامة",
       a1b: "يعمل مع الريلز والصور والألبومات العامة. الحسابات الخاصة والقصص غير مدعومة.",
       a2t: "بلا علامة مائية",
@@ -97,6 +101,10 @@
       statFollowing: "following",
       storiesTitle: "Stories",
       storiesEmpty: "No public stories right now.",
+      postsTitle: "Posts and Reels",
+      morePosts: "More",
+      clipTitle: "Link on clipboard",
+      clipGo: "Fetch",
       a1t: "Public posts",
       a1b: "Works with public Reels, photos, and albums. Private accounts and Stories are not supported.",
       a2t: "No watermark",
@@ -130,9 +138,11 @@
   const $ = (id) => document.getElementById(id);
   const state = {
     lang: localStorage.getItem("nada-lang") || "ar",
+    theme: localStorage.getItem("nada-theme") || "light",
     post: null,
     index: 0,
     history: JSON.parse(localStorage.getItem("nada-lib") || "[]"),
+    clip: "",
   };
 
   const clock = $("clock");
@@ -158,8 +168,42 @@
     document.querySelectorAll("[data-i18n-ph]").forEach((el) => {
       el.placeholder = t(el.dataset.i18nPh);
     });
+    $("themeBtn").textContent = state.theme === "dark" ? "☀" : "☾";
     if (state.post) renderResult(state.post, false);
+    if (profileState) renderProfileGrid(profileState.posts || []);
     renderLibrary();
+  }
+
+  function applyTheme() {
+    document.documentElement.dataset.theme = state.theme;
+    const color = state.theme === "dark" ? "#1c1814" : "#efe6da";
+    const meta = document.getElementById("themeColor");
+    if (meta) meta.setAttribute("content", color);
+    $("themeBtn").textContent = state.theme === "dark" ? "☀" : "☾";
+  }
+
+  function showClip(url) {
+    if (!url) {
+      $("clipBar").hidden = true;
+      return;
+    }
+    state.clip = url;
+    $("clipUrl").textContent = url;
+    $("clipBar").hidden = false;
+  }
+
+  function extractIgUrl(text) {
+    const m = String(text || "").match(/https?:\/\/(?:www\.)?(?:instagram\.com|instagr\.am)\/\S+/i);
+    return m ? m[0].replace(/[),.\]]+$/, "") : "";
+  }
+
+  async function checkClipboard() {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) return;
+      const text = await navigator.clipboard.readText();
+      const url = extractIgUrl(text);
+      if (url) showClip(url);
+    } catch (_) {}
   }
 
   function tick() {
@@ -386,10 +430,26 @@
     $("profileHandle").textContent = data.username ? `@${data.username}` : "";
     $("profileBio").textContent = data.bio || t("noBio");
     $("profileAvatar").src = data.avatar ? mediaUrl(data.avatar) : "";
-    $("statPosts").textContent = compact(data.posts);
+    $("statPosts").textContent = compact(data.post_count);
     $("statFollowers").textContent = compact(data.followers);
     $("statFollowing").textContent = compact(data.following);
     renderStories(data.stories);
+    renderProfileGrid(data.posts || []);
+    $("morePosts").hidden = !data.cursor;
+  }
+
+  function renderProfileGrid(items) {
+    const grid = $("profileGrid");
+    const list = Array.isArray(items) ? items : [];
+    grid.innerHTML = list
+      .map((item) => {
+        const src = item.preview ? mediaUrl(item.preview) : "";
+        return `<button class="grid-item" type="button" data-code="${escapeHtml(item.shortcode || "")}">
+          ${src ? `<img alt="" src="${src}" />` : ""}
+          <i>${kindLabel(item.kind || "photo")}</i>
+        </button>`;
+      })
+      .join("");
   }
 
   async function lookupProfile(username) {
@@ -455,6 +515,48 @@
     localStorage.setItem("nada-lang", state.lang);
     applyLang();
     tick();
+  });
+
+  $("themeBtn").addEventListener("click", () => {
+    state.theme = state.theme === "dark" ? "light" : "dark";
+    localStorage.setItem("nada-theme", state.theme);
+    applyTheme();
+  });
+
+  $("clipGo").addEventListener("click", () => {
+    if (!state.clip) return;
+    $("clipBar").hidden = true;
+    input.value = state.clip;
+    resolve(state.clip);
+  });
+  $("clipDismiss").addEventListener("click", () => {
+    $("clipBar").hidden = true;
+    state.clip = "";
+  });
+
+  $("profileGrid").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-code]");
+    if (!btn || !btn.dataset.code) return;
+    resolve(`https://www.instagram.com/p/${btn.dataset.code}/`);
+  });
+
+  $("morePosts").addEventListener("click", async () => {
+    if (!profileState || !profileState.cursor || !profileState.user_id) return;
+    showLoader(true);
+    try {
+      const data = await apiPost("/api/profile/more", {
+        user_id: profileState.user_id,
+        cursor: profileState.cursor,
+      });
+      profileState.posts = [...(profileState.posts || []), ...(data.posts || [])];
+      profileState.cursor = data.cursor || "";
+      renderProfileGrid(profileState.posts);
+      $("morePosts").hidden = !profileState.cursor;
+    } catch (err) {
+      toast(mapError(err.status, err.code));
+    } finally {
+      showLoader(false);
+    }
   });
 
   $("dlBtn").addEventListener("click", () => {
@@ -571,6 +673,12 @@
     resolve(text);
   };
 
+  window.nadaOfferClip = function nadaOfferClip(url) {
+    const found = extractIgUrl(url);
+    if (found) showClip(found);
+  };
+
+  applyTheme();
   applyLang();
   renderLibrary();
   showLoader(false);
@@ -578,4 +686,8 @@
   setInterval(tick, 15000);
   const boot = new URLSearchParams(location.search).get("url");
   if (boot) window.nadaOpen(boot);
+  else checkClipboard();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") checkClipboard();
+  });
 })();

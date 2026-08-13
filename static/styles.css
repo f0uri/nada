@@ -56,6 +56,25 @@
   --shadow: 0 24px 60px rgba(74, 52, 36, 0.18);
   --r: 28px;
   --safe-b: max(10px, env(safe-area-inset-bottom));
+  --stage: #e7d9c8;
+  --phone: linear-gradient(180deg, #f6efe6 0%, #efe4d6 48%, #e7d8c8 100%);
+  --theme: #efe6da;
+}
+html[data-theme="dark"] {
+  --sand: #1c1814;
+  --cream: #241f1a;
+  --ink: #f3ece3;
+  --muted: #b5aaa0;
+  --soft: #8d8278;
+  --line: rgba(255, 255, 255, 0.12);
+  --glass: rgba(255, 255, 255, 0.08);
+  --glass-2: rgba(255, 255, 255, 0.12);
+  --accent: #d08a6e;
+  --accent-d: #e0b09a;
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  --stage: #14110e;
+  --phone: linear-gradient(180deg, #221d18 0%, #1a1612 55%, #14110e 100%);
+  --theme: #1c1814;
 }
 
 [hidden] { display: none !important; }
@@ -67,7 +86,7 @@ body {
   min-height: 100%;
   color: var(--ink);
   font-family: "Nada AR", "Nada EN", "SF Pro Text", "Segoe UI", sans-serif;
-  background: #d9cbb8;
+  background: var(--stage);
   overflow: hidden;
 }
 html[lang="en"] body,
@@ -87,7 +106,7 @@ html[lang="en"] {
   background:
     radial-gradient(900px 500px at 15% 10%, rgba(255, 236, 214, 0.9), transparent 55%),
     radial-gradient(800px 520px at 90% 85%, rgba(186, 168, 148, 0.55), transparent 50%),
-    #e7d9c8 url("/img/hero-orb.jpg") center / cover no-repeat;
+    var(--stage) url("/img/hero-orb.jpg") center / cover no-repeat;
 }
 .aurora {
   position: absolute; inset: -10%;
@@ -124,7 +143,7 @@ html[lang="en"] {
   overflow: hidden;
   background:
     radial-gradient(120% 80% at 50% -10%, rgba(255,255,255,0.55), transparent 50%),
-    linear-gradient(180deg, #f6efe6 0%, #efe4d6 48%, #e7d8c8 100%);
+    var(--phone);
   display: flex;
   flex-direction: column;
 }
@@ -667,7 +686,7 @@ html[dir="ltr"] .circle svg { transform: scaleX(-1); }
 
 @media (max-width: 520px) {
   body { overflow: auto; }
-  .stage { background: #efe6da; display: block; }
+  .stage { background: var(--theme); display: block; }
   .aurora { opacity: .7; }
   .device {
     width: 100%; height: 100dvh;

@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#efe6da" />
+  <meta name="theme-color" content="#efe6da" id="themeColor" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>𝐈𝐆 𝐒𝐀𝐕𝐄</title>
+  <title>IG SAVE</title>
   <link rel="icon" type="image/png" href="/img/favicon.png" />
   <link rel="apple-touch-icon" href="/img/apple-touch.png" />
   <link rel="manifest" href="/manifest.json" />
@@ -32,13 +32,25 @@
         <main class="app">
           <section class="view" id="view-home" data-view="home">
             <div class="topbar">
-              <button class="lang" id="langBtn" type="button">EN</button>
-              <div class="brand">
-                <img class="mark" src="/img/icon.png" alt="" />
-                <div>
-                  <p class="eyebrow" data-i18n="eyebrow">حفظ هادئ</p>
-                  <h1 class="brand-title">𝐈𝐆 𝐒𝐀𝐕𝐄</h1>
-                </div>
+              <div class="top-actions">
+                <button class="lang" id="themeBtn" type="button" aria-label="theme">☾</button>
+                <button class="lang" id="langBtn" type="button">EN</button>
+              </div>
+              <div class="brand-word">
+                <span class="brand-ig">IG</span>
+                <span class="brand-rule" aria-hidden="true"></span>
+                <span class="brand-save">SAVE</span>
+              </div>
+            </div>
+
+            <div class="clip-bar glass" id="clipBar" hidden>
+              <div>
+                <p class="box-label" data-i18n="clipTitle">رابط في الحافظة</p>
+                <p class="clip-url" id="clipUrl"></p>
+              </div>
+              <div class="clip-actions">
+                <button class="ghost" id="clipGo" type="button" data-i18n="clipGo">جلب</button>
+                <button class="ghost" id="clipDismiss" type="button" aria-label="close">✕</button>
               </div>
             </div>
 
@@ -136,7 +148,7 @@
 
           <section class="view" id="view-about" hidden data-view="about">
             <div class="page-head">
-              <p class="eyebrow">𝐈𝐆 𝐒𝐀𝐕𝐄</p>
+              <p class="eyebrow">IG SAVE</p>
               <h1 data-i18n="about">حول التطبيق</h1>
             </div>
             <div class="cards">

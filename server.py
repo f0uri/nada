@@ -289,6 +289,36 @@ class InstagramSession:
                     })
         return items[:24]
 
+    async def user_posts(self, user: dict[str, Any], cursor: str | None = None) -> tuple[list[dict[str, Any]], str]:
+        posts: list[dict[str, Any]] = []
+        next_cursor = ""
+        user_id = str(user.get("id") or user.get("pk") or "")
+        if user_id:
+            q = f"count=18"
+            if cursor:
+                q += f"&max_id={quote(cursor)}"
+            data = await self._ig_get(
+                f"https://www.instagram.com/api/v1/feed/user/{quote(user_id)}/?{q}",
+                f"https://www.instagram.com/{user.get('username') or ''}/",
+            )
+            for node in (data or {}).get("items") or []:
+                packed = pack_grid_item(node)
+                if packed:
+                    posts.append(packed)
+            if (data or {}).get("more_available"):
+                next_cursor = str((data or {}).get("next_max_id") or "")
+        if not posts:
+            edges = ((user.get("edge_owner_to_timeline_media") or {}).get("edges")) or []
+            for edge in edges:
+                node = (edge or {}).get("node") or edge
+                packed = pack_grid_item(node)
+                if packed:
+                    posts.append(packed)
+            page = (user.get("edge_owner_to_timeline_media") or {}).get("page_info") or {}
+            if page.get("has_next_page"):
+                next_cursor = page.get("end_cursor") or ""
+        return posts, next_cursor
+
 
 ig = InstagramSession()
 app = FastAPI(title="Nada", docs_url=None, redoc_url=None)
@@ -340,9 +370,44 @@ def pack_profile(user: dict[str, Any]) -> dict[str, Any]:
         "private": bool(user.get("is_private")),
         "followers": followers,
         "following": following,
-        "posts": posts,
+        "post_count": posts,
         "avatar": sign_url(avatar) if avatar and host_ok(avatar) else None,
         "stories": [],
+        "posts": [],
+        "user_id": str(user.get("id") or user.get("pk") or ""),
+        "cursor": "",
+    }
+
+
+def pack_grid_item(node: dict[str, Any]) -> dict[str, Any] | None:
+    shortcode = node.get("code") or node.get("shortcode") or ""
+    if not shortcode:
+        return None
+    media_type = node.get("media_type")
+    product = (node.get("product_type") or "").lower()
+    is_video = bool(node.get("is_video") or media_type == 2 or node.get("video_versions"))
+    kind = "photo"
+    if product == "clips" or node.get("__typename") == "GraphVideo" and product == "clips":
+        kind = "reel"
+    elif media_type == 8 or node.get("__typename") == "GraphSidecar" or node.get("carousel_media"):
+        kind = "carousel"
+    elif is_video:
+        kind = "reel" if product in ("clips", "igtv") else "video"
+    preview = ""
+    image = best_image(node)
+    if image:
+        preview = image.get("url") or ""
+    preview = preview or node.get("display_url") or node.get("thumbnail_src") or node.get("display_uri") or ""
+    if not preview:
+        cands = ((node.get("image_versions2") or {}).get("candidates")) or []
+        if cands:
+            preview = cands[0].get("url") or ""
+    if preview and not host_ok(preview):
+        preview = ""
+    return {
+        "shortcode": shortcode,
+        "kind": kind,
+        "preview": sign_url(preview) if preview else None,
     }
 
 
@@ -506,7 +571,34 @@ async def profile(payload: ProfileIn, request: Request):
     packed = pack_profile(user)
     if not packed.get("username") and not packed.get("avatar"):
         raise HTTPException(404, "missing")
+    try:
+        packed["stories"] = await ig.stories(user)
+    except Exception:
+        packed["stories"] = []
+    try:
+        grid, cursor = await ig.user_posts(user)
+        packed["posts"] = grid
+        packed["cursor"] = cursor
+    except Exception:
+        packed["posts"] = []
     return packed
+
+
+class ProfileMoreIn(BaseModel):
+    user_id: str = Field(min_length=1, max_length=80)
+    cursor: str = Field(default="", max_length=300)
+
+
+@app.post("/api/profile/more")
+async def profile_more(payload: ProfileMoreIn, request: Request):
+    hit_rate(client_ip(request))
+    try:
+        grid, cursor = await ig.user_posts({"id": payload.user_id, "pk": payload.user_id}, payload.cursor or None)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(502, "network") from exc
+    return {"ok": True, "posts": grid, "cursor": cursor}
 
 
 @app.get("/api/media")

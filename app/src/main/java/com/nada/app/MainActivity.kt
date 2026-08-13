@@ -2,6 +2,7 @@ package com.nada.app
 
 import android.annotation.SuppressLint
 import android.app.DownloadManager
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -51,6 +52,7 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 pageReady = true
                 deliverPending()
+                offerClipboard()
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {

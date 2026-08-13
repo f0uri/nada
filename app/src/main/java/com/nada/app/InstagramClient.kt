@@ -58,7 +58,7 @@ class InstagramClient {
                     .optJSONObject("data")
                     ?.optJSONObject("user")
                 if (user != null && user.optString("username").isNotBlank()) {
-                    return attachStories(packProfile(user), user)
+                    return attachPosts(attachStories(packProfile(user), user), user)
                 }
             }
         }
@@ -260,9 +260,12 @@ class InstagramClient {
             .put("private", user.optBoolean("is_private"))
             .put("followers", followers)
             .put("following", following)
-            .put("posts", posts)
+            .put("post_count", posts)
             .put("avatar", if (avatar.isNotBlank() && hostOk(avatar)) signUrl(avatar) else JSONObject.NULL)
             .put("stories", JSONArray())
+            .put("posts", JSONArray())
+            .put("user_id", user.optString("id").ifBlank { user.optString("pk") })
+            .put("cursor", "")
     }
 
     private fun igGet(url: String, referer: String): JSONObject? {
@@ -343,6 +346,88 @@ class InstagramClient {
         }
         profile.put("stories", stories)
         return profile
+    }
+
+    fun morePosts(userId: String, cursor: String): JSONObject {
+        val user = JSONObject().put("id", userId).put("pk", userId)
+        val pair = fetchUserPosts(user, cursor.ifBlank { null })
+        return JSONObject().put("ok", true).put("posts", pair.first).put("cursor", pair.second)
+    }
+
+    private fun attachPosts(profile: JSONObject, user: JSONObject): JSONObject {
+        return try {
+            val pair = fetchUserPosts(user, null)
+            profile.put("posts", pair.first)
+            profile.put("cursor", pair.second)
+            profile
+        } catch (_: Exception) {
+            profile
+        }
+    }
+
+    private fun fetchUserPosts(user: JSONObject, cursor: String?): Pair<JSONArray, String> {
+        val posts = JSONArray()
+        var next = ""
+        val userId = user.optString("id").ifBlank { user.optString("pk") }
+        if (userId.isNotBlank()) {
+            val q = buildString {
+                append("count=18")
+                if (!cursor.isNullOrBlank()) append("&max_id=").append(cursor)
+            }
+            val data = igGet(
+                "https://www.instagram.com/api/v1/feed/user/$userId/?$q",
+                "https://www.instagram.com/",
+            )
+            val items = data?.optJSONArray("items") ?: JSONArray()
+            for (i in 0 until items.length()) {
+                packGridItem(items.getJSONObject(i))?.let { posts.put(it) }
+            }
+            if (data?.optBoolean("more_available") == true) {
+                next = data.optString("next_max_id")
+            }
+        }
+        if (posts.length() == 0) {
+            val edges = user.optJSONObject("edge_owner_to_timeline_media")?.optJSONArray("edges") ?: JSONArray()
+            for (i in 0 until edges.length()) {
+                val node = edges.optJSONObject(i)?.optJSONObject("node") ?: edges.optJSONObject(i) ?: continue
+                packGridItem(node)?.let { posts.put(it) }
+            }
+            val page = user.optJSONObject("edge_owner_to_timeline_media")?.optJSONObject("page_info")
+            if (page?.optBoolean("has_next_page") == true) next = page.optString("end_cursor")
+        }
+        return posts to next
+    }
+
+    private fun packGridItem(node: JSONObject): JSONObject? {
+        val shortcode = node.optString("code").ifBlank { node.optString("shortcode") }
+        if (shortcode.isBlank()) return null
+        val mediaType = node.optInt("media_type", -1)
+        val product = node.optString("product_type").lowercase(Locale.US)
+        val isVideo = node.optBoolean("is_video") || mediaType == 2 || (node.optJSONArray("video_versions")?.length() ?: 0) > 0
+        val kind = when {
+            product == "clips" -> "reel"
+            mediaType == 8 || node.optString("__typename") == "GraphSidecar" || node.optJSONArray("carousel_media") != null -> "carousel"
+            isVideo && product in setOf("clips", "igtv") -> "reel"
+            isVideo -> "video"
+            else -> "photo"
+        }
+        var preview = bestImage(node)?.optString("url").orEmpty()
+        if (preview.isBlank()) {
+            preview = node.optString("display_url").ifBlank {
+                node.optString("thumbnail_src").ifBlank { node.optString("display_uri") }
+            }
+        }
+        if (preview.isBlank()) {
+            preview = node.optJSONObject("image_versions2")
+                ?.optJSONArray("candidates")
+                ?.optJSONObject(0)
+                ?.optString("url")
+                .orEmpty()
+        }
+        return JSONObject()
+            .put("shortcode", shortcode)
+            .put("kind", kind)
+            .put("preview", if (preview.isNotBlank() && hostOk(preview)) signUrl(preview) else JSONObject.NULL)
     }
 
     private fun profileFromHtml(username: String): JSONObject {
