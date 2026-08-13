@@ -13,6 +13,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 
 class MainActivity : AppCompatActivity() {
@@ -35,7 +36,6 @@ class MainActivity : AppCompatActivity() {
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            databaseEnabled = true
             allowFileAccess = false
             allowContentAccess = false
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
@@ -57,6 +57,20 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, name, Toast.LENGTH_SHORT).show()
         }
         web.loadUrl(NadaServer.BASE)
+
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (web.canGoBack()) {
+                        web.goBack()
+                    } else {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                    }
+                }
+            },
+        )
     }
 
     override fun onDestroy() {
@@ -64,14 +78,5 @@ class MainActivity : AppCompatActivity() {
             server.stop()
         }
         super.onDestroy()
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (::web.isInitialized && web.canGoBack()) {
-            web.goBack()
-        } else {
-            super.onBackPressed()
-        }
     }
 }

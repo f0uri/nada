@@ -46,7 +46,9 @@ android {
     }
 
     sourceSets {
-        getByName("main").assets.srcDir("../static")
+        getByName("main") {
+            assets.directories.add(rootProject.layout.projectDirectory.dir("static"))
+        }
     }
 }
 

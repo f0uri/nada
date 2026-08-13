@@ -4,6 +4,7 @@ import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
@@ -216,7 +217,7 @@ class InstagramClient {
 
     private fun hostOk(url: String): Boolean {
         return try {
-            val host = HttpUrl.parse(url)?.host?.lowercase(Locale.US) ?: return false
+            val host = url.toHttpUrlOrNull()?.host?.lowercase(Locale.US) ?: return false
             ALLOWED.any { host == it || host.endsWith(".$it") }
         } catch (_: Exception) {
             false
