@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#efe6da" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>ندى — Nada</title>
+  <title>𝐈𝐆 𝐒𝐀𝐕𝐄</title>
   <link rel="icon" type="image/png" href="/img/favicon.png" />
   <link rel="apple-touch-icon" href="/img/apple-touch.png" />
   <link rel="manifest" href="/manifest.json" />
@@ -37,7 +37,7 @@
                 <img class="mark" src="/img/icon.png" alt="" />
                 <div>
                   <p class="eyebrow" data-i18n="eyebrow">حفظ هادئ</p>
-                  <h1 data-i18n="app">ندى</h1>
+                  <h1 class="brand-title">𝐈𝐆 𝐒𝐀𝐕𝐄</h1>
                 </div>
               </div>
             </div>
@@ -65,11 +65,33 @@
               <p class="fine" data-i18n="publicOnly">المنشورات العامة فقط</p>
             </div>
 
-            <div class="empty" id="empty">
-              <img src="/img/empty.png" alt="" />
-              <h2 data-i18n="emptyTitle">مساحة هادئة للحفظ</h2>
-              <p data-i18n="emptyBody">ريلز، صور، أو ألبومات. نعرض المعاينة أولاً، ثم تحفظ ما تشاء.</p>
-            </div>
+            <form class="composer glass profile-box" id="profileForm" autocomplete="off">
+              <p class="box-label" data-i18n="profileTitle">بحث عن حساب</p>
+              <label class="sr" for="username" data-i18n="userLabel">اسم المستخدم</label>
+              <div class="field">
+                <span class="field-icon at" aria-hidden="true">@</span>
+                <input id="username" name="username" spellcheck="false" inputmode="text"
+                  placeholder="username" data-i18n-ph="userPlaceholder" />
+                <button class="ghost" id="profileGo" type="submit" data-i18n="profileGo">بحث</button>
+              </div>
+            </form>
+
+            <article class="glass profile-card" id="profileCard" hidden>
+              <div class="profile-head">
+                <img id="profileAvatar" alt="" />
+                <div>
+                  <b id="profileName"></b>
+                  <span id="profileHandle"></span>
+                </div>
+              </div>
+              <p class="profile-bio" id="profileBio"></p>
+              <div class="split">
+                <button class="secondary" id="dlAvatarBtn" type="button" data-i18n="dlAvatar">تنزيل الصورة</button>
+                <button class="secondary" id="copyBioBtn" type="button" data-i18n="copyBio">نسخ البايو</button>
+              </div>
+            </article>
+
+            <p class="credit-line">Youssef Mansouri</p>
           </section>
 
           <section class="view sheet" id="view-result" hidden data-view="result">
@@ -110,10 +132,15 @@
 
           <section class="view" id="view-about" hidden data-view="about">
             <div class="page-head">
-              <p class="eyebrow">Nada</p>
-              <h1 data-i18n="about">حول ندى</h1>
+              <p class="eyebrow">𝐈𝐆 𝐒𝐀𝐕𝐄</p>
+              <h1 data-i18n="about">حول التطبيق</h1>
             </div>
             <div class="cards">
+              <article class="glass card credit-card">
+                <p class="box-label" data-i18n="madeBy">صُنع بواسطة</p>
+                <h3>Youssef Mansouri</h3>
+                <p data-i18n="creditBody">تصميم، تطوير، وحقوق هذا التطبيق.</p>
+              </article>
               <article class="glass card">
                 <h3 data-i18n="a1t">للمنشورات العامة</h3>
                 <p data-i18n="a1b">يعمل مع الريلز والصور والألبومات العامة. الحسابات الخاصة والقصص غير مدعومة.</p>

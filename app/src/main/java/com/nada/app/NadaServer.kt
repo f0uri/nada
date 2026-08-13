@@ -16,6 +16,7 @@ class NadaServer(
         return try {
             when {
                 uri == "/api/resolve" && session.method == Method.POST -> handleResolve(session)
+                uri == "/api/profile" && session.method == Method.POST -> handleProfile(session)
                 uri == "/api/media" && session.method == Method.GET -> handleMedia(session)
                 else -> handleStatic(uri)
             }
@@ -24,6 +25,17 @@ class NadaServer(
         } catch (ex: Exception) {
             jsonError(502, "network")
         }
+    }
+
+    private fun handleProfile(session: IHTTPSession): Response {
+        val raw = readBody(session)
+        val username = try {
+            JSONObject(raw.ifBlank { "{}" }).optString("username")
+        } catch (_: Exception) {
+            ""
+        }
+        val result = instagram.profile(username)
+        return newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", result.toString())
     }
 
     private fun handleResolve(session: IHTTPSession): Response {

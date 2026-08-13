@@ -53,6 +53,21 @@ class ResolveIn(BaseModel):
     url: str = Field(min_length=4, max_length=500)
 
 
+class ProfileIn(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+
+
+USER_RE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
+USER_URL_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:instagram\.com|instagr\.am)/([A-Za-z0-9._]+)/?",
+    re.I,
+)
+RESERVED = {
+    "p", "reel", "reels", "tv", "stories", "explore", "accounts", "about",
+    "legal", "developer", "directory", "privacy", "terms", "lite",
+}
+
+
 class InstagramSession:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
@@ -135,6 +150,57 @@ class InstagramSession:
         if not items:
             raise HTTPException(404, "missing")
         return items[0]
+
+    async def profile(self, username: str) -> dict[str, Any]:
+        csrf = await self.ensure()
+        headers = {
+            "x-ig-app-id": APP_ID,
+            "x-asbd-id": "359341",
+            "x-csrftoken": csrf,
+            "x-ig-www-claim": "0",
+            "x-requested-with": "XMLHttpRequest",
+            "referer": f"https://www.instagram.com/{username}/",
+        }
+        r = await self.client.get(
+            f"https://www.instagram.com/api/v1/users/web_profile_info/?username={quote(username)}",
+            headers=headers,
+        )
+        if r.status_code == 429:
+            raise HTTPException(429, "rate")
+        if r.status_code == 200:
+            try:
+                user = ((r.json().get("data") or {}).get("user")) or {}
+            except Exception:
+                user = {}
+            if user.get("username"):
+                return user
+        page = await self.client.get(
+            f"https://www.instagram.com/{username}/",
+            headers={"referer": "https://www.instagram.com/"},
+        )
+        if page.status_code == 429:
+            raise HTTPException(429, "rate")
+        if page.status_code >= 400:
+            raise HTTPException(404, "missing")
+        html = page.text
+        pic = re.search(r'property="og:image" content="([^"]+)"', html)
+        title = re.search(r'property="og:title" content="([^"]+)"', html)
+        desc = re.search(r'property="og:description" content="([^"]+)"', html)
+        bio = re.search(r'"biography":"((?:\\.|[^"\\])*)"', html)
+        hd = re.search(r'"profile_pic_url_hd":"([^"]+)"', html)
+        if not pic and not hd and not title:
+            raise HTTPException(404, "missing")
+        name = ""
+        if title:
+            name = title.group(1).split("(@")[0].split("•")[0].strip()
+        return {
+            "username": username,
+            "full_name": name,
+            "biography": (bio.group(1).encode("utf-8").decode("unicode_escape") if bio else "")
+            or (desc.group(1) if desc else ""),
+            "profile_pic_url_hd": (hd.group(1).encode("utf-8").decode("unicode_escape") if hd else "")
+            or (pic.group(1) if pic else ""),
+        }
 
 
 ig = InstagramSession()
@@ -297,6 +363,24 @@ async def resolve(payload: ResolveIn, request: Request):
     if not post["media"]:
         raise HTTPException(404, "empty")
     return post
+
+
+@app.post("/api/profile")
+async def profile(payload: ProfileIn, request: Request):
+    hit_rate(client_ip(request))
+    username = parse_username(payload.username)
+    try:
+        user = await ig.profile(username)
+    except HTTPException:
+        raise
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, "network") from exc
+    except RuntimeError as exc:
+        raise HTTPException(502, "session") from exc
+    packed = pack_profile(user)
+    if not packed.get("username") and not packed.get("avatar"):
+        raise HTTPException(404, "missing")
+    return packed
 
 
 @app.get("/api/media")

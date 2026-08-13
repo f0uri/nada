@@ -1,8 +1,8 @@
 (() => {
   const I18N = {
     ar: {
-      app: "ندى",
-      eyebrow: "حفظ هادئ",
+      app: "𝐈𝐆 𝐒𝐀𝐕𝐄",
+      eyebrow: "𝐈𝐆 𝐒𝐀𝐕𝐄",
       lede: "الصق رابط ريلز أو صورة عامة، ونحفظها لك بجودة المنشور الأصلية — بلا علامة مائية.",
       urlLabel: "رابط إنستغرام",
       placeholder: "https://www.instagram.com/reel/…",
@@ -18,7 +18,18 @@
       libraryEyebrow: "ما حفظته هنا",
       library: "المكتبة",
       libEmpty: "لا شيء بعد. المنشورات التي تجلبها تظهر هنا بهدوء.",
-      about: "حول ندى",
+      about: "حول التطبيق",
+      profileTitle: "بحث عن حساب",
+      userLabel: "اسم المستخدم",
+      userPlaceholder: "username",
+      profileGo: "بحث",
+      dlAvatar: "تنزيل الصورة",
+      copyBio: "نسخ البايو",
+      madeBy: "صُنع بواسطة",
+      creditBody: "تصميم، تطوير، وحقوق هذا التطبيق.",
+      bioCopied: "نُسخ البايو",
+      noBio: "لا يوجد بايو.",
+      errUser: "اسم المستخدم غير صالح.",
       a1t: "للمنشورات العامة",
       a1b: "يعمل مع الريلز والصور والألبومات العامة. الحسابات الخاصة والقصص غير مدعومة.",
       a2t: "بلا علامة مائية",
@@ -47,8 +58,8 @@
       errClip: "تعذّر اللصق من الحافظة.",
     },
     en: {
-      app: "Nada",
-      eyebrow: "Soft saving",
+      app: "𝐈𝐆 𝐒𝐀𝐕𝐄",
+      eyebrow: "𝐈𝐆 𝐒𝐀𝐕𝐄",
       lede: "Paste a public Reel or photo link. We keep the original file — no watermark.",
       urlLabel: "Instagram link",
       placeholder: "https://www.instagram.com/reel/…",
@@ -64,7 +75,18 @@
       libraryEyebrow: "Kept on this device",
       library: "Library",
       libEmpty: "Nothing yet. Posts you fetch will rest here.",
-      about: "About Nada",
+      about: "About",
+      profileTitle: "Find an account",
+      userLabel: "Username",
+      userPlaceholder: "username",
+      profileGo: "Search",
+      dlAvatar: "Save photo",
+      copyBio: "Copy bio",
+      madeBy: "Made by",
+      creditBody: "Designed and developed, with all rights reserved.",
+      bioCopied: "Bio copied",
+      noBio: "No bio.",
+      errUser: "That username is not valid.",
       a1t: "Public posts",
       a1b: "Works with public Reels, photos, and albums. Private accounts and Stories are not supported.",
       a2t: "No watermark",
@@ -279,26 +301,62 @@
   }
 
   function mapError(status, code) {
+    if (code === "user") return t("errUser");
     if (code === "url" || status === 400) return t("errUrl");
     if (code === "rate" || status === 429) return t("errRate");
     if (code === "missing" || code === "empty" || status === 404) return t("errMissing");
     return t("errNet");
   }
 
-  async function resolve(url) {
-    showLoader(true);
+  async function apiPost(path, payload) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 28000);
     try {
-      const res = await fetch("/api/resolve", {
+      const res = await fetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) throw Object.assign(new Error("fail"), { status: res.status, code: data.error });
+      return data;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async function resolve(url) {
+    showLoader(true);
+    try {
+      const data = await apiPost("/api/resolve", { url });
       state.post = data;
       remember(data);
       renderResult(data, true);
       showView("result");
+    } catch (err) {
+      toast(mapError(err.status, err.code));
+    } finally {
+      showLoader(false);
+    }
+  }
+
+  let profileState = null;
+
+  function renderProfile(data) {
+    profileState = data;
+    $("profileCard").hidden = false;
+    $("profileName").textContent = data.name || data.username || "";
+    $("profileHandle").textContent = data.username ? `@${data.username}` : "";
+    $("profileBio").textContent = data.bio || t("noBio");
+    $("profileAvatar").src = data.avatar ? mediaUrl(data.avatar) : "";
+  }
+
+  async function lookupProfile(username) {
+    showLoader(true);
+    try {
+      const data = await apiPost("/api/profile", { username });
+      renderProfile(data);
     } catch (err) {
       toast(mapError(err.status, err.code));
     } finally {
@@ -415,9 +473,55 @@
     btn.addEventListener("click", () => showView(btn.dataset.tab));
   });
 
+  $("profileForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const username = $("username").value.trim();
+    if (!username) {
+      $("username").focus();
+      return;
+    }
+    lookupProfile(username);
+  });
+
+  $("dlAvatarBtn").addEventListener("click", () => {
+    if (!profileState || !profileState.avatar) return;
+    const a = document.createElement("a");
+    a.href = mediaUrl(profileState.avatar, true, `${profileState.username || "profile"}_avatar`);
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast(t("saved"));
+  });
+
+  $("copyBioBtn").addEventListener("click", async () => {
+    const text = profileState?.bio || "";
+    if (!text) {
+      toast(t("noBio"));
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(t("bioCopied"));
+    } catch {
+      toast(t("errClip"));
+    }
+  });
+
+  window.nadaOpen = function nadaOpen(url) {
+    const text = String(url || "").trim();
+    if (!text) return;
+    input.value = text;
+    showView("home");
+    toast(t("shared"));
+    resolve(text);
+  };
+
   applyLang();
   renderLibrary();
   showLoader(false);
   tick();
   setInterval(tick, 15000);
+  const boot = new URLSearchParams(location.search).get("url");
+  if (boot) window.nadaOpen(boot);
 })();

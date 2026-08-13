@@ -38,6 +38,33 @@ class InstagramClient {
     @Volatile
     private var csrf: String = ""
 
+    fun profile(raw: String): JSONObject {
+        val username = parseUsername(raw)
+        val token = ensureCsrf()
+        val request = Request.Builder()
+            .url("https://www.instagram.com/api/v1/users/web_profile_info/?username=$username")
+            .header("User-Agent", UA)
+            .header("x-ig-app-id", APP_ID)
+            .header("x-asbd-id", "359341")
+            .header("x-csrftoken", token)
+            .header("x-ig-www-claim", "0")
+            .header("x-requested-with", "XMLHttpRequest")
+            .header("referer", "https://www.instagram.com/$username/")
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (response.code == 429) throw ApiException(429, "rate")
+            if (response.isSuccessful) {
+                val user = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
+                    .optJSONObject("data")
+                    ?.optJSONObject("user")
+                if (user != null && user.optString("username").isNotBlank()) {
+                    return packProfile(user)
+                }
+            }
+        }
+        return profileFromHtml(username)
+    }
+
     fun resolve(rawUrl: String): JSONObject {
         val shortcode = parseShortcode(rawUrl)
         val item = webInfo(shortcode)
@@ -208,6 +235,56 @@ class InstagramClient {
         }
     }
 
+    private fun parseUsername(raw: String): String {
+        var text = raw.trim().trimStart('@')
+        val fromUrl = USER_PAGE_RE.find(text)
+        if (fromUrl != null) text = fromUrl.groupValues[1]
+        text = text.trim().trim('/')
+        if (text.lowercase(Locale.US) in RESERVED || !USER_RE.matches(text)) {
+            throw ApiException(400, "user")
+        }
+        return text
+    }
+
+    private fun packProfile(user: JSONObject): JSONObject {
+        val avatar = user.optString("profile_pic_url_hd").ifBlank { user.optString("profile_pic_url") }
+            .replace("\\u0026", "&")
+        return JSONObject()
+            .put("ok", true)
+            .put("username", user.optString("username"))
+            .put("name", user.optString("full_name"))
+            .put("bio", user.optString("biography"))
+            .put("private", user.optBoolean("is_private"))
+            .put("avatar", if (avatar.isNotBlank() && hostOk(avatar)) signUrl(avatar) else JSONObject.NULL)
+    }
+
+    private fun profileFromHtml(username: String): JSONObject {
+        val request = Request.Builder()
+            .url("https://www.instagram.com/$username/")
+            .header("User-Agent", UA)
+            .header("referer", "https://www.instagram.com/")
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (response.code == 429) throw ApiException(429, "rate")
+            if (!response.isSuccessful) throw ApiException(404, "missing")
+            val html = response.body?.string().orEmpty()
+            val pic = Regex("""property="og:image" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
+            val title = Regex("""property="og:title" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
+            val desc = Regex("""property="og:description" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
+            val hd = Regex(""""profile_pic_url_hd":"([^"]+)"""").find(html)?.groupValues?.get(1)
+                ?.replace("\\u0026", "&").orEmpty()
+            if (pic.isBlank() && hd.isBlank() && title.isBlank()) throw ApiException(404, "missing")
+            val name = title.substringBefore("(@").substringBefore("•").trim()
+            return packProfile(
+                JSONObject()
+                    .put("username", username)
+                    .put("full_name", name)
+                    .put("biography", desc)
+                    .put("profile_pic_url_hd", hd.ifBlank { pic }),
+            )
+        }
+    }
+
     private fun parseShortcode(raw: String): String {
         val text = raw.trim()
         if (SHORT_RE.matches(text)) return text
@@ -276,6 +353,15 @@ class InstagramClient {
             RegexOption.IGNORE_CASE,
         )
         private val SHORT_RE = Regex("^[A-Za-z0-9_-]{5,20}$")
+        private val USER_RE = Regex("^[A-Za-z0-9._]{1,30}$")
+        private val USER_PAGE_RE = Regex(
+            "(?:https?://)?(?:www\\.)?(?:instagram\\.com|instagr\\.am)/([A-Za-z0-9._]+)/?",
+            RegexOption.IGNORE_CASE,
+        )
+        private val RESERVED = setOf(
+            "p", "reel", "reels", "tv", "stories", "explore", "accounts",
+            "about", "legal", "privacy", "terms", "lite",
+        )
         private val ALLOWED = listOf(
             "cdninstagram.com",
             "fbcdn.net",

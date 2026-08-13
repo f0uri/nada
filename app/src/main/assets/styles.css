@@ -207,6 +207,12 @@ h1 {
   letter-spacing: -0.03em;
   line-height: 1.05;
 }
+.brand-title {
+  font-family: "Nada EN", "Times New Roman", serif;
+  font-size: 28px;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
 .lede {
   margin: 16px 2px 20px;
   color: var(--muted);
