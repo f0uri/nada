@@ -58,7 +58,7 @@ class InstagramClient {
                     .optJSONObject("data")
                     ?.optJSONObject("user")
                 if (user != null && user.optString("username").isNotBlank()) {
-                    return packProfile(user)
+                    return attachStories(packProfile(user), user)
                 }
             }
         }

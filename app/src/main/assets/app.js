@@ -30,6 +30,11 @@
       bioCopied: "نُسخ البايو",
       noBio: "لا يوجد بايو.",
       errUser: "اسم المستخدم غير صالح.",
+      statPosts: "منشور",
+      statFollowers: "متابع",
+      statFollowing: "يتابع",
+      storiesTitle: "ستوريات",
+      storiesEmpty: "لا توجد ستوريات عامة حالياً.",
       a1t: "للمنشورات العامة",
       a1b: "يعمل مع الريلز والصور والألبومات العامة. الحسابات الخاصة والقصص غير مدعومة.",
       a2t: "بلا علامة مائية",
@@ -87,6 +92,11 @@
       bioCopied: "Bio copied",
       noBio: "No bio.",
       errUser: "That username is not valid.",
+      statPosts: "posts",
+      statFollowers: "followers",
+      statFollowing: "following",
+      storiesTitle: "Stories",
+      storiesEmpty: "No public stories right now.",
       a1t: "Public posts",
       a1b: "Works with public Reels, photos, and albums. Private accounts and Stories are not supported.",
       a2t: "No watermark",
@@ -343,6 +353,32 @@
 
   let profileState = null;
 
+  function compact(n) {
+    if (n == null || n === "") return "—";
+    const x = Number(n);
+    if (!Number.isFinite(x)) return "—";
+    if (x >= 1e6) return `${(x / 1e6).toFixed(x >= 1e7 ? 0 : 1).replace(/\.0$/, "")}M`;
+    if (x >= 1e3) return `${(x / 1e3).toFixed(x >= 1e4 ? 0 : 1).replace(/\.0$/, "")}K`;
+    return x.toLocaleString(state.lang === "ar" ? "ar" : "en");
+  }
+
+  function renderStories(items) {
+    const row = $("storiesRow");
+    const empty = $("storiesEmpty");
+    const list = Array.isArray(items) ? items : [];
+    row.innerHTML = list
+      .map((item, i) => {
+        const src = item.preview ? mediaUrl(item.preview) : "";
+        const label = escapeHtml(item.title || (item.kind === "video" ? t("video") : t("photo")));
+        return `<button class="story-chip" type="button" data-story="${i}">
+          ${src ? `<img alt="" src="${src}" />` : ""}
+          <span>${label}</span>
+        </button>`;
+      })
+      .join("");
+    empty.hidden = list.length > 0;
+  }
+
   function renderProfile(data) {
     profileState = data;
     $("profileCard").hidden = false;
@@ -350,6 +386,10 @@
     $("profileHandle").textContent = data.username ? `@${data.username}` : "";
     $("profileBio").textContent = data.bio || t("noBio");
     $("profileAvatar").src = data.avatar ? mediaUrl(data.avatar) : "";
+    $("statPosts").textContent = compact(data.posts);
+    $("statFollowers").textContent = compact(data.followers);
+    $("statFollowing").textContent = compact(data.following);
+    renderStories(data.stories);
   }
 
   async function lookupProfile(username) {
@@ -487,6 +527,20 @@
     if (!profileState || !profileState.avatar) return;
     const a = document.createElement("a");
     a.href = mediaUrl(profileState.avatar, true, `${profileState.username || "profile"}_avatar`);
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast(t("saved"));
+  });
+
+  $("storiesRow").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-story]");
+    if (!btn || !profileState) return;
+    const item = (profileState.stories || [])[Number(btn.dataset.story)];
+    if (!item || !item.file) return;
+    const a = document.createElement("a");
+    a.href = mediaUrl(item.file, true, `${profileState.username || "story"}_${item.id || btn.dataset.story}`);
     a.download = "";
     document.body.appendChild(a);
     a.click();

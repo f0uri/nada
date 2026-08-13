@@ -77,21 +77,25 @@
             </form>
 
             <article class="glass profile-card" id="profileCard" hidden>
-              <div class="profile-head">
-                <img id="profileAvatar" alt="" />
-                <div>
-                  <b id="profileName"></b>
-                  <span id="profileHandle"></span>
-                </div>
+              <img class="profile-avatar" id="profileAvatar" alt="" />
+              <h3 class="profile-name" id="profileName"></h3>
+              <p class="profile-handle" id="profileHandle"></p>
+              <div class="profile-stats">
+                <div><b id="statPosts">0</b><span data-i18n="statPosts">منشور</span></div>
+                <div><b id="statFollowers">0</b><span data-i18n="statFollowers">متابع</span></div>
+                <div><b id="statFollowing">0</b><span data-i18n="statFollowing">يتابع</span></div>
               </div>
               <p class="profile-bio" id="profileBio"></p>
               <div class="split">
                 <button class="secondary" id="dlAvatarBtn" type="button" data-i18n="dlAvatar">تنزيل الصورة</button>
                 <button class="secondary" id="copyBioBtn" type="button" data-i18n="copyBio">نسخ البايو</button>
               </div>
+              <div class="stories-block" id="storiesBlock">
+                <p class="box-label" data-i18n="storiesTitle">ستوريات</p>
+                <div class="stories-row" id="storiesRow"></div>
+                <p class="stories-empty" id="storiesEmpty" hidden data-i18n="storiesEmpty">لا توجد ستوريات عامة حالياً.</p>
+              </div>
             </article>
-
-            <p class="credit-line">Youssef Mansouri</p>
           </section>
 
           <section class="view sheet" id="view-result" hidden data-view="result">

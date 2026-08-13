@@ -335,18 +335,128 @@ html[dir="rtl"] .primary svg { transform: scaleX(-1); }
 }
 .fine { color: var(--soft); font-size: 12px; }
 
-.empty {
+.profile-box { margin-top: 14px; }
+.box-label {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.field-icon.at {
+  font-family: "Nada EN", sans-serif;
+  font-weight: 600;
+  color: var(--soft);
+  width: auto;
+  padding: 0 2px;
+}
+.profile-card {
+  margin-top: 12px;
+  border-radius: 28px;
+  padding: 20px 16px 16px;
   text-align: center;
-  padding: 10px 8px 0;
 }
-.empty img {
-  width: min(280px, 88%);
-  margin: 6px auto 8px;
+.profile-avatar {
+  width: 86px !important;
+  height: 86px !important;
+  max-width: 86px;
+  border-radius: 50%;
+  object-fit: cover;
   display: block;
-  filter: drop-shadow(0 16px 24px rgba(90,60,40,0.08));
+  margin: 0 auto 10px;
+  background: #ddd4c8;
+  box-shadow: 0 8px 20px rgba(90, 60, 40, 0.12);
+  border: 2px solid rgba(255,255,255,0.7);
 }
-.empty h2 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
-.empty p { color: var(--muted); font-size: 14px; line-height: 1.65; }
+.profile-name {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 2px;
+}
+.profile-handle {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+.profile-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.profile-stats div {
+  background: rgba(255,255,255,0.42);
+  border-radius: 16px;
+  padding: 10px 6px 8px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.profile-stats b {
+  display: block;
+  font-family: "Nada EN", sans-serif;
+  font-size: 16px;
+}
+.profile-stats span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.profile-bio {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  text-align: start;
+  margin: 0 4px 14px;
+}
+.stories-block {
+  margin-top: 16px;
+  text-align: start;
+}
+.stories-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 8px 2px 4px;
+  scrollbar-width: none;
+}
+.stories-row::-webkit-scrollbar { display: none; }
+.story-chip {
+  flex: none;
+  width: 76px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: center;
+  font-family: inherit;
+}
+.story-chip img {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+  margin: 0 auto 6px;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #c88468;
+}
+.story-chip span {
+  display: block;
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stories-empty {
+  color: var(--soft);
+  font-size: 12.5px;
+  margin-top: 4px;
+}
+.credit-card h3 {
+  font-family: "Nada EN", sans-serif;
+  letter-spacing: 0.02em;
+}
 
 .sheet-handle {
   width: 40px; height: 5px; border-radius: 99px;

@@ -202,6 +202,93 @@ class InstagramSession:
             or (pic.group(1) if pic else ""),
         }
 
+    async def _ig_get(self, url: str, referer: str) -> dict[str, Any] | None:
+        csrf = await self.ensure()
+        r = await self.client.get(
+            url,
+            headers={
+                "x-ig-app-id": APP_ID,
+                "x-asbd-id": "359341",
+                "x-csrftoken": csrf,
+                "x-ig-www-claim": "0",
+                "x-requested-with": "XMLHttpRequest",
+                "referer": referer,
+            },
+        )
+        if r.status_code >= 400:
+            return None
+        try:
+            data = r.json()
+        except Exception:
+            return None
+        return data if isinstance(data, dict) else None
+
+    async def stories(self, user: dict[str, Any]) -> list[dict[str, Any]]:
+        user_id = str(user.get("id") or user.get("pk") or "")
+        items: list[dict[str, Any]] = []
+        if user_id:
+            live = await self._ig_get(
+                f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={quote(user_id)}",
+                "https://www.instagram.com/",
+            )
+            reels = (live or {}).get("reels") or {}
+            tray = reels.get(user_id) or reels.get(str(user_id)) or {}
+            for node in tray.get("items") or []:
+                packed = pack_media(node, len(items) + 1)
+                if packed:
+                    packed["title"] = "قصة"
+                    items.append(packed)
+            tray_data = await self._ig_get(
+                f"https://www.instagram.com/api/v1/highlights/{quote(user_id)}/highlights_tray/",
+                "https://www.instagram.com/",
+            )
+            highlights = (tray_data or {}).get("tray") or []
+            for hl in highlights[:12]:
+                hid = str(hl.get("id") or "").replace("highlight:", "")
+                cover = (
+                    ((hl.get("cover_media") or {}).get("cropped_image_version") or {}).get("url")
+                    or ((hl.get("cover_media") or {}).get("thumbnail_src"))
+                )
+                title = ((hl.get("title") or "هايلايت")[:18])
+                if hid:
+                    detail = await self._ig_get(
+                        f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:{quote(hid)}",
+                        "https://www.instagram.com/",
+                    )
+                    reel = ((detail or {}).get("reels") or {}).get(f"highlight:{hid}") or {}
+                    for node in reel.get("items") or []:
+                        packed = pack_media(node, len(items) + 1)
+                        if packed:
+                            packed["title"] = title
+                            items.append(packed)
+                elif cover and host_ok(cover):
+                    items.append({
+                        "id": hid or title,
+                        "index": len(items) + 1,
+                        "kind": "image",
+                        "preview": sign_url(cover),
+                        "file": sign_url(cover),
+                        "ext": "jpg",
+                        "title": title,
+                    })
+        edges = ((user.get("edge_highlight_reels") or {}).get("edges")) or []
+        if not items:
+            for edge in edges[:12]:
+                node = (edge or {}).get("node") or {}
+                cover = ((node.get("cover_media") or {}).get("thumbnail_src")) or ""
+                title = (node.get("title") or "هايلايت")[:18]
+                if cover and host_ok(cover):
+                    items.append({
+                        "id": str(node.get("id") or title),
+                        "index": len(items) + 1,
+                        "kind": "image",
+                        "preview": sign_url(cover),
+                        "file": sign_url(cover),
+                        "ext": "jpg",
+                        "title": title,
+                    })
+        return items[:24]
+
 
 ig = InstagramSession()
 app = FastAPI(title="Nada", docs_url=None, redoc_url=None)
@@ -218,6 +305,45 @@ def hit_rate(ip: str, limit: int = 24, window: float = 60.0) -> None:
         raise HTTPException(429, "rate")
     bucket.append(now)
     _rate[ip] = bucket
+
+
+def parse_username(raw: str) -> str:
+    text = (raw or "").strip().lstrip("@")
+    if "instagram." in text.lower() or "instagr.am" in text.lower():
+        found = USER_URL_RE.search(text)
+        if found:
+            text = found.group(1)
+    text = text.strip().strip("/")
+    if text.lower() in RESERVED or not USER_RE.fullmatch(text):
+        raise HTTPException(400, "user")
+    return text
+
+
+def pack_profile(user: dict[str, Any]) -> dict[str, Any]:
+    avatar = user.get("profile_pic_url_hd") or user.get("profile_pic_url") or ""
+    if isinstance(avatar, str):
+        avatar = avatar.replace("\\u0026", "&")
+    followers = (user.get("edge_followed_by") or {}).get("count")
+    if followers is None:
+        followers = user.get("follower_count")
+    following = (user.get("edge_follow") or {}).get("count")
+    if following is None:
+        following = user.get("following_count")
+    posts = (user.get("edge_owner_to_timeline_media") or {}).get("count")
+    if posts is None:
+        posts = user.get("media_count")
+    return {
+        "ok": True,
+        "username": user.get("username") or "",
+        "name": user.get("full_name") or "",
+        "bio": user.get("biography") or "",
+        "private": bool(user.get("is_private")),
+        "followers": followers,
+        "following": following,
+        "posts": posts,
+        "avatar": sign_url(avatar) if avatar and host_ok(avatar) else None,
+        "stories": [],
+    }
 
 
 def parse_shortcode(raw: str) -> str:
