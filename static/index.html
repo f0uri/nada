@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#efe6da" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>ندى — Nada</title>
+  <link rel="icon" type="image/png" href="/img/favicon.png" />
+  <link rel="apple-touch-icon" href="/img/apple-touch.png" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="stage">
+    <div class="aurora" aria-hidden="true"></div>
+    <div class="device">
+      <div class="device-chrome" aria-hidden="true">
+        <span class="island"></span>
+      </div>
+      <div class="phone">
+        <header class="status">
+          <time id="clock">09:41</time>
+          <div class="pills">
+            <span class="sig"></span>
+            <span class="wifi"></span>
+            <span class="bat"></span>
+          </div>
+        </header>
+
+        <main class="app">
+          <section class="view" id="view-home" data-view="home">
+            <div class="topbar">
+              <button class="lang" id="langBtn" type="button">EN</button>
+              <div class="brand">
+                <img class="mark" src="/img/icon.png" alt="" />
+                <div>
+                  <p class="eyebrow" data-i18n="eyebrow">حفظ هادئ</p>
+                  <h1 data-i18n="app">ندى</h1>
+                </div>
+              </div>
+            </div>
+
+            <p class="lede" data-i18n="lede">الصق رابط ريلز أو صورة عامة، ونحفظها لك بجودة المنشور الأصلية — بلا علامة مائية.</p>
+
+            <form class="composer glass" id="form" autocomplete="off">
+              <label class="sr" for="url" data-i18n="urlLabel">رابط إنستغرام</label>
+              <div class="field">
+                <span class="field-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 0 0 7.07.07l1.86-1.86a5 5 0 0 0-7.07-7.07L10.7 5.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M14 11a5 5 0 0 0-7.07-.07L5.07 12.8a5 5 0 0 0 7.07 7.07L13.3 18.7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                </span>
+                <input id="url" name="url" type="url" inputmode="url" spellcheck="false"
+                  placeholder="https://www.instagram.com/reel/…" data-i18n-ph="placeholder" />
+                <button class="ghost" id="pasteBtn" type="button" data-i18n="paste">لصق</button>
+              </div>
+              <button class="primary" id="go" type="submit">
+                <span data-i18n="fetch">جلب المنشور</span>
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 6l6 6-6 6M4 12h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </form>
+
+            <div class="hint-row">
+              <button class="chip" id="demoBtn" type="button" data-i18n="demo">جرّب مثالاً عاماً</button>
+              <p class="fine" data-i18n="publicOnly">المنشورات العامة فقط</p>
+            </div>
+
+            <div class="empty" id="empty">
+              <img src="/img/empty.png" alt="" />
+              <h2 data-i18n="emptyTitle">مساحة هادئة للحفظ</h2>
+              <p data-i18n="emptyBody">ريلز، صور، أو ألبومات. نعرض المعاينة أولاً، ثم تحفظ ما تشاء.</p>
+            </div>
+          </section>
+
+          <section class="view sheet" id="view-result" hidden data-view="result">
+            <div class="sheet-handle" aria-hidden="true"></div>
+            <div class="sheet-bar">
+              <button class="circle" id="backBtn" type="button" aria-label="رجوع">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M14.5 6 8 12l6.5 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div class="who" id="who"></div>
+              <span class="badge" id="kindBadge"></span>
+            </div>
+            <div class="stage-media" id="carousel"></div>
+            <div class="dots" id="dots"></div>
+            <p class="caption" id="caption"></p>
+            <div class="stats" id="stats"></div>
+            <div class="actions">
+              <button class="primary" id="dlBtn" type="button">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M12 4v11m0 0 4.5-4.5M12 15 7.5 10.5M5 19h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span data-i18n="download">تنزيل هذا الملف</span>
+              </button>
+              <div class="split">
+                <button class="secondary" id="dlAllBtn" type="button" data-i18n="downloadAll">تنزيل الكل</button>
+                <button class="secondary" id="copyCapBtn" type="button" data-i18n="copyCaption">نسخ النص</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="view" id="view-library" hidden data-view="library">
+            <div class="page-head">
+              <p class="eyebrow" data-i18n="libraryEyebrow">ما حفظته هنا</p>
+              <h1 data-i18n="library">المكتبة</h1>
+            </div>
+            <div class="lib-empty glass" id="libEmpty">
+              <p data-i18n="libEmpty">لا شيء بعد. المنشورات التي تجلبها تظهر هنا بهدوء.</p>
+            </div>
+            <div class="lib-grid" id="libGrid"></div>
+          </section>
+
+          <section class="view" id="view-about" hidden data-view="about">
+            <div class="page-head">
+              <p class="eyebrow">Nada</p>
+              <h1 data-i18n="about">حول ندى</h1>
+            </div>
+            <div class="cards">
+              <article class="glass card">
+                <h3 data-i18n="a1t">للمنشورات العامة</h3>
+                <p data-i18n="a1b">يعمل مع الريلز والصور والألبومات العامة. الحسابات الخاصة والقصص غير مدعومة.</p>
+              </article>
+              <article class="glass card">
+                <h3 data-i18n="a2t">بلا علامة مائية</h3>
+                <p data-i18n="a2b">نأخذ الملف كما نشره صاحبه. الجودة هي جودة إنستغرام الأصلية المتاحة.</p>
+              </article>
+              <article class="glass card">
+                <h3 data-i18n="a3t">احترام المبدعين</h3>
+                <p data-i18n="a3b">للحفظ الشخصي فقط. حقوق العمل تبقى لصاحب الحساب — لا تعِد النشر دون إذن.</p>
+              </article>
+            </div>
+          </section>
+        </main>
+
+        <div class="loader" id="loader" hidden>
+          <div class="dew"></div>
+          <p data-i18n="loading">نبحث عن المنشور…</p>
+        </div>
+
+        <div class="toast" id="toast" hidden></div>
+
+        <nav class="tabbar glass" aria-label="التنقل">
+          <button class="tab on" data-tab="home" type="button">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4.5 11.2 12 4.8l7.5 6.4V20a1 1 0 0 1-1 1h-4.2v-5.2h-4.6V21H5.5a1 1 0 0 1-1-1v-8.8Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            <span data-i18n="tabHome">الرئيسية</span>
+          </button>
+          <button class="tab" data-tab="library" type="button">
+            <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="14" rx="2.4" stroke="currentColor" stroke-width="1.7"/><path d="m8 14 2.4-2.6 2.2 2.1L16.2 10 20 14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span data-i18n="tabLib">المكتبة</span>
+          </button>
+          <button class="tab" data-tab="about" type="button">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.2" stroke="currentColor" stroke-width="1.7"/><path d="M12 11.2V16M12 8.2h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <span data-i18n="tabAbout">حول</span>
+          </button>
+        </nav>
+        <div class="home-ind" aria-hidden="true"></div>
+      </div>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
