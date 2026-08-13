@@ -96,10 +96,23 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    override fun onResume() {
+        super.onResume()
+        offerClipboard()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         queueUrl(extractInstagramUrl(intent))
+    }
+
+    private fun offerClipboard() {
+        if (!pageReady || !::web.isInitialized) return
+        val clip = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val text = runCatching { clip.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString() }.getOrNull()
+        val url = INSTAGRAM_URL.find(text.orEmpty())?.value ?: return
+        web.evaluateJavascript("window.nadaOfferClip && window.nadaOfferClip(${JSONObject.quote(url)})", null)
     }
 
     private fun queueUrl(url: String?) {
