@@ -52,6 +52,22 @@ jobs:
           fi
           echo "Java environment verified: major version ${major} is 17 or newer."
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform 36
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+          if [ -z "${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}" ]; then
+            echo "ERROR: Android SDK path is not set."
+            exit 1
+          fi
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          printf 'sdk.dir=%s\n' "${sdk_root}" > local.properties
+          echo "Android SDK ready at ${sdk_root}"
+
       - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:

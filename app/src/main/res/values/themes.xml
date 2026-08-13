@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.Nada" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/sand</item>
+        <item name="android:navigationBarColor">@color/sand</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">@color/sand</item>
+    </style>
+</resources>
