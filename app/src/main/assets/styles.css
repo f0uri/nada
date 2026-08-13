@@ -58,6 +58,8 @@
   --safe-b: max(10px, env(safe-area-inset-bottom));
 }
 
+[hidden] { display: none !important; }
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
 html { -webkit-text-size-adjust: 100%; }
@@ -496,11 +498,15 @@ html[dir="ltr"] .circle svg { transform: scaleX(-1); }
 .loader {
   position: absolute; inset: 0;
   z-index: 8;
-  display: grid; place-items: center; align-content: center; gap: 14px;
+  display: none;
+  place-items: center; align-content: center; gap: 14px;
   background: rgba(239, 230, 218, 0.55);
   backdrop-filter: blur(18px);
   color: var(--muted);
   font-size: 14px;
+}
+.loader.on {
+  display: grid;
 }
 .dew {
   width: 22px; height: 22px; border-radius: 50%;
@@ -553,7 +559,8 @@ html[dir="ltr"] .circle svg { transform: scaleX(-1); }
     box-shadow: none; background: none;
   }
   .phone { border-radius: 0; height: 100dvh; }
-  .home-ind { display: none; }
+  .status, .home-ind { display: none; }
+  .app { padding-top: calc(12px + env(safe-area-inset-top)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

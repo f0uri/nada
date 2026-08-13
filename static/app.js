@@ -148,6 +148,7 @@
 
   function showLoader(on) {
     loader.hidden = !on;
+    loader.classList.toggle("on", !!on);
   }
 
   function showView(name) {
@@ -414,6 +415,7 @@
 
   applyLang();
   renderLibrary();
+  showLoader(false);
   tick();
   setInterval(tick, 15000);
 })();

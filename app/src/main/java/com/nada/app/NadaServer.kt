@@ -27,9 +27,7 @@ class NadaServer(
     }
 
     private fun handleResolve(session: IHTTPSession): Response {
-        val map = HashMap<String, String>()
-        session.parseBody(map)
-        val raw = map["postData"].orEmpty().ifBlank { session.queryParameterString.orEmpty() }
+        val raw = readBody(session)
         val url = try {
             JSONObject(raw.ifBlank { "{}" }).optString("url")
         } catch (_: Exception) {
@@ -37,6 +35,24 @@ class NadaServer(
         }
         val result = instagram.resolve(url)
         return newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", result.toString())
+    }
+
+    private fun readBody(session: IHTTPSession): String {
+        val map = HashMap<String, String>()
+        session.parseBody(map)
+        val posted = map["postData"].orEmpty()
+        if (posted.isNotBlank()) return posted
+        val length = session.headers["content-length"]?.toIntOrNull() ?: 0
+        if (length <= 0) return ""
+        val bytes = ByteArray(length)
+        var offset = 0
+        val input = session.inputStream
+        while (offset < length) {
+            val read = input.read(bytes, offset, length - offset)
+            if (read < 0) break
+            offset += read
+        }
+        return String(bytes, 0, offset, Charsets.UTF_8)
     }
 
     private fun handleMedia(session: IHTTPSession): Response {
