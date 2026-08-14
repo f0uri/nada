@@ -28,11 +28,24 @@ class NadaServer(
         }
     }
 
+    private fun withSecurity(response: Response): Response {
+        response.addHeader("X-Content-Type-Options", "nosniff")
+        response.addHeader("Referrer-Policy", "no-referrer")
+        response.addHeader("X-Frame-Options", "DENY")
+        response.addHeader(
+            "Content-Security-Policy",
+            "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; " +
+                "font-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; " +
+                "base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+        )
+        return response
+    }
+
     private fun handleProfileMore(session: IHTTPSession): Response {
         val raw = readBody(session)
         val json = runCatching { JSONObject(raw.ifBlank { "{}" }) }.getOrElse { JSONObject() }
         val result = instagram.morePosts(json.optString("user_id"), json.optString("cursor"))
-        return newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", result.toString())
+        return withSecurity(newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", result.toString()))
     }
 
     private fun handleProfile(session: IHTTPSession): Response {
@@ -43,7 +56,7 @@ class NadaServer(
             ""
         }
         val result = instagram.profile(username)
-        return newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", result.toString())
+        return withSecurity(newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", result.toString()))
     }
 
     private fun handleResolve(session: IHTTPSession): Response {
@@ -64,6 +77,7 @@ class NadaServer(
         if (posted.isNotBlank()) return posted
         val length = session.headers["content-length"]?.toIntOrNull() ?: 0
         if (length <= 0) return ""
+        if (length > 32_768) throw InstagramClient.ApiException(400, "url")
         val bytes = ByteArray(length)
         var offset = 0
         val input = session.inputStream
@@ -96,7 +110,7 @@ class NadaServer(
             contentType.contains("webp") -> "webp"
             else -> "bin"
         }
-        val response = newChunkedResponse(Response.Status.OK, contentType, body.byteStream())
+        val response = withSecurity(newChunkedResponse(Response.Status.OK, contentType, body.byteStream()))
         response.addHeader("Cache-Control", "private, max-age=300")
         if (download) {
             response.addHeader("Content-Disposition", "attachment; filename=\"$name.$ext\"")
@@ -142,7 +156,7 @@ class NadaServer(
     private fun jsonError(status: Int, code: String): Response {
         val http = Response.Status.lookup(status) ?: Response.Status.INTERNAL_ERROR
         val payload = JSONObject().put("ok", false).put("error", code).toString()
-        return newFixedLengthResponse(http, "application/json; charset=utf-8", payload)
+        return withSecurity(newFixedLengthResponse(http, "application/json; charset=utf-8", payload))
     }
 
     companion object {

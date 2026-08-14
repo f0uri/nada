@@ -36,17 +36,18 @@ class MainActivity : AppCompatActivity() {
         server = NadaServer(this, instagram)
         server.start()
 
-        CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
+        CookieManager.getInstance().setAcceptCookie(false)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(web, false)
 
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             allowFileAccess = false
             allowContentAccess = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             cacheMode = WebSettings.LOAD_DEFAULT
             mediaPlaybackRequiresUserGesture = false
+            setSupportMultipleWindows(false)
         }
         web.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -56,19 +57,32 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val target = request?.url?.toString().orEmpty()
-                return if (INSTAGRAM_URL.containsMatchIn(target)) {
-                    queueUrl(target)
-                    true
-                } else {
-                    false
+                val target = request?.url ?: return true
+                val host = target.host.orEmpty()
+                if (host == "127.0.0.1" || host == "localhost") return false
+                val href = target.toString()
+                if (INSTAGRAM_URL.containsMatchIn(href)) {
+                    queueUrl(href)
                 }
+                return true
             }
         }
-        web.webChromeClient = WebChromeClient()
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message?,
+            ): Boolean = false
+        }
         web.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            val parsed = runCatching { Uri.parse(url) }.getOrNull() ?: return@setDownloadListener
+            val host = parsed.host.orEmpty()
+            if (host != "127.0.0.1" && host != "localhost") return@setDownloadListener
             val name = URLUtil.guessFileName(url, contentDisposition, mimeType)
-            val request = DownloadManager.Request(Uri.parse(url))
+                .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                .ifBlank { "nada.bin" }
+            val request = DownloadManager.Request(parsed)
                 .setMimeType(mimeType)
                 .addRequestHeader("User-Agent", userAgent)
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)

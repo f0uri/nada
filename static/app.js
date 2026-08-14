@@ -149,9 +149,23 @@
     theme: localStorage.getItem("nada-theme") || "light",
     post: null,
     index: 0,
-    history: JSON.parse(localStorage.getItem("nada-lib") || "[]"),
+    history: loadHistory(),
     clip: "",
   };
+
+  function loadHistory() {
+    try {
+      const raw = JSON.parse(localStorage.getItem("nada-lib") || "[]");
+      return Array.isArray(raw) ? raw.slice(0, 24) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function safeCode(code) {
+    const text = String(code || "");
+    return /^[A-Za-z0-9_-]{5,32}$/.test(text) ? text : "";
+  }
 
   const clock = $("clock");
   const form = $("form");
@@ -248,9 +262,11 @@
   }
 
   function mediaUrl(token, download, name) {
-    const q = new URLSearchParams({ t: token });
+    const raw = String(token || "");
+    if (!raw || /[^0-9a-fA-F%]/.test(raw) || raw.length < 8) return "";
+    const q = new URLSearchParams({ t: raw });
     if (download) q.set("download", "1");
-    if (name) q.set("name", name);
+    if (name) q.set("name", String(name).replace(/[^A-Za-z0-9._-]+/g, "_"));
     return `/api/media?${q}`;
   }
 
@@ -275,8 +291,9 @@
   function renderResult(post, resetIndex) {
     if (resetIndex) state.index = 0;
     const owner = post.owner || {};
+    const avatarSrc = owner.avatar ? escapeHtml(mediaUrl(owner.avatar)) : "";
     $("who").innerHTML = `
-      ${owner.avatar ? `<img alt="" src="${mediaUrl(owner.avatar)}" />` : ""}
+      ${avatarSrc ? `<img alt="" src="${avatarSrc}" />` : ""}
       <div>
         <b>@${escapeHtml(owner.username || "instagram")}</b>
         <span>${escapeHtml(owner.name || "")}</span>
@@ -292,10 +309,11 @@
 
     carousel.innerHTML = post.media
       .map((item, i) => {
-        const src = mediaUrl(item.kind === "video" ? item.file : item.preview);
+        const src = escapeHtml(mediaUrl(item.kind === "video" ? item.file : item.preview));
+        const poster = escapeHtml(mediaUrl(item.preview));
         if (item.kind === "video") {
           return `<article class="slide" data-i="${i}">
-            <video playsinline preload="metadata" poster="${mediaUrl(item.preview)}" src="${src}"></video>
+            <video playsinline preload="metadata" poster="${poster}" src="${src}"></video>
             <button class="play-fab" type="button" data-play="${i}" aria-label="play">
               <span><svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 7.5v9l8-4.5-8-4.5Z"/></svg></span>
             </button>
@@ -342,9 +360,11 @@
     grid.innerHTML = state.history
       .map((h) => {
         const src = h.thumb ? mediaUrl(h.thumb) : "";
-        return `<button class="lib-card" type="button" data-code="${h.shortcode}">
+        const code = safeCode(h.shortcode);
+        if (!code) return "";
+        return `<button class="lib-card" type="button" data-code="${escapeHtml(code)}">
           <figure>
-            ${src ? `<img alt="" src="${src}" />` : `<div style="height:148px"></div>`}
+            ${src ? `<img alt="" src="${escapeHtml(src)}" />` : `<div style="height:148px"></div>`}
             <figcaption>
               <b>@${escapeHtml(h.username || "")}</b>
               <span>${kindLabel(h.kind)} · ${h.media.length} ${t("files")}</span>
@@ -425,7 +445,9 @@
     $("profileBio").textContent = bioText || t("noBio");
     $("profileBio").classList.toggle("empty", !bioText);
     $("profileBio").dir = "auto";
-    $("profileAvatar").src = data.avatar ? mediaUrl(data.avatar) : "";
+    const avatar = data.avatar ? mediaUrl(data.avatar) : "";
+    if (avatar) $("profileAvatar").src = avatar;
+    else $("profileAvatar").removeAttribute("src");
     $("statPosts").textContent = compact(data.post_count);
     $("statFollowers").textContent = compact(data.followers);
     $("statFollowing").textContent = compact(data.following);
@@ -536,8 +558,9 @@
 
   $("profileGrid").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-code]");
-    if (!btn || !btn.dataset.code) return;
-    resolve(`https://www.instagram.com/p/${btn.dataset.code}/`);
+    const code = safeCode(btn.dataset.code);
+    if (!code) return;
+    resolve(`https://www.instagram.com/p/${code}/`);
   });
 
   $("morePosts").addEventListener("click", async () => {
@@ -607,8 +630,9 @@
 
   $("libGrid").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-code]");
-    if (!btn) return;
-    resolve(`https://www.instagram.com/p/${btn.dataset.code}/`);
+    const code = safeCode(btn && btn.dataset.code);
+    if (!code) return;
+    resolve(`https://www.instagram.com/p/${code}/`);
   });
 
   document.querySelectorAll(".tab").forEach((btn) => {

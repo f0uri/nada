@@ -34,6 +34,10 @@ class InstagramClient {
             override fun loadForRequest(url: HttpUrl): List<Cookie> = cookieStore.values.toList()
         })
         .build()
+    private val mediaClient = client.newBuilder()
+        .followRedirects(false)
+        .followSslRedirects(false)
+        .build()
 
     @Volatile
     private var csrf: String = ""
@@ -76,8 +80,8 @@ class InstagramClient {
             .header("Referer", "https://www.instagram.com/")
             .header("Accept", "*/*")
             .build()
-        val response = client.newCall(request).execute()
-        if (!response.isSuccessful) {
+        val response = mediaClient.newCall(request).execute()
+        if (!response.isSuccessful || response.isRedirect) {
             response.close()
             throw ApiException(502, "cdn")
         }

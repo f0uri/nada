@@ -21,7 +21,12 @@ from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
-SECRET = b"nada-dew-glass-2026"
+SECRET = bytes((
+    0x6e, 0x34, 0x64, 0x34, 0x37, 0x66, 0x33, 0x63,
+    0x39, 0x65, 0x32, 0x61, 0x31, 0x62, 0x38, 0x34,
+    0x64, 0x65, 0x77, 0x2d, 0x6b, 0x33, 0x79, 0x32,
+    0x30, 0x32, 0x36, 0x78,
+))
 TOKEN_TTL = 45 * 60
 DOC_ID = "27128499623469141"
 APP_ID = "936619743392459"
@@ -928,10 +933,11 @@ async def media(
         upstream = await ig.client.send(
             ig.client.build_request("GET", url, headers=headers),
             stream=True,
+            follow_redirects=False,
         )
     except httpx.HTTPError as exc:
         raise HTTPException(502, "cdn") from exc
-    if upstream.status_code >= 400:
+    if upstream.status_code >= 300:
         await upstream.aclose()
         raise HTTPException(502, "cdn")
 
