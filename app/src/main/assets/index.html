@@ -64,6 +64,7 @@
                 </span>
                 <input id="url" name="url" type="url" inputmode="url" spellcheck="false" dir="ltr"
                   placeholder="https://www.instagram.com/reel/…" data-i18n-ph="placeholder" />
+                <button class="field-clear" id="urlClear" type="button" hidden data-i18n-aria="clear">✕</button>
                 <button class="ghost" id="pasteBtn" type="button" data-i18n="paste">لصق</button>
               </div>
               <button class="primary" id="go" type="submit">
@@ -82,8 +83,9 @@
               <label class="sr" for="username" data-i18n="userLabel">اسم المستخدم</label>
               <div class="field">
                 <span class="field-icon at" aria-hidden="true">@</span>
-                <input id="username" name="username" spellcheck="false" inputmode="text"
+                <input id="username" name="username" spellcheck="false" inputmode="text" dir="ltr" autocomplete="username"
                   placeholder="username" data-i18n-ph="userPlaceholder" />
+                <button class="field-clear" id="userClear" type="button" hidden data-i18n-aria="clear">✕</button>
                 <button class="ghost" id="profileGo" type="submit" data-i18n="profileGo">بحث</button>
               </div>
             </form>
@@ -169,7 +171,7 @@
               </article>
               <article class="glass card">
                 <h3 data-i18n="bubbleTitle">زر عائم</h3>
-                <p data-i18n="bubbleBody">يبقى فوق إنستغرام. انسخ الرابط ثم اضغط الزر لجلبه. اضغط مطولاً لإخفائه. لا يقرأ الشاشة.</p>
+                <p data-i18n="bubbleBody">يبقى فوق إنستغرام. انسخ الرابط ثم اضغط الزر ليُنزَّل في الخلفية ويظهر في الإشعارات. اضغط مطولاً لإخفائه. لا يقرأ الشاشة.</p>
                 <button class="secondary more-btn" id="bubbleBtn" type="button" data-i18n="bubbleOn">تفعيل الزر العائم</button>
               </article>
               <article class="glass card">

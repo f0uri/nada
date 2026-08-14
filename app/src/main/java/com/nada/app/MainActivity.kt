@@ -209,6 +209,9 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= 33) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 26)
         }
+        if (Build.VERSION.SDK_INT < 29) {
+            requestPermissions(arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE), 27)
+        }
         BubbleService.start(this)
     }
 

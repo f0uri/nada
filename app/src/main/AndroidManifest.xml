@@ -6,7 +6,11 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application
         android:allowBackup="false"
@@ -45,6 +49,16 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".QuickSaveActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:finishOnTaskLaunch="true"
+            android:launchMode="singleInstance"
+            android:noHistory="true"
+            android:taskAffinity="com.nada.app.quicksave"
+            android:theme="@style/Theme.Nada.Ghost" />
+
         <service
             android:name=".BubbleService"
             android:exported="false"
@@ -53,5 +67,10 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="floating shortcut to fetch a copied Instagram link" />
         </service>
+
+        <service
+            android:name=".QuickSaveService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
     </application>
 </manifest>

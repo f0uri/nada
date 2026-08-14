@@ -78,6 +78,29 @@ class InstagramClient {
         return post
     }
 
+    fun prepareSave(rawUrl: String): SaveBatch {
+        val post = resolve(rawUrl)
+        val media = post.optJSONArray("media") ?: JSONArray()
+        val username = post.optJSONObject("owner")?.optString("username").orEmpty().ifBlank { "instagram" }
+        val code = post.optString("shortcode").ifBlank { "post" }
+        val files = mutableListOf<SaveFile>()
+        for (i in 0 until media.length()) {
+            val item = media.optJSONObject(i) ?: continue
+            val token = item.optString("file")
+            if (token.isBlank()) continue
+            val remote = unsignUrl(token)
+            val ext = item.optString("ext").ifBlank {
+                if (item.optString("kind") == "video") "mp4" else "jpg"
+            }
+            val index = item.optInt("index", i + 1)
+            val name = "${safeFilePart(username)}_${safeFilePart(code)}_$index.$ext"
+            val mime = if (ext == "mp4") "video/mp4" else "image/jpeg"
+            files += SaveFile(remote, name, mime)
+        }
+        if (files.isEmpty()) throw ApiException(404, "empty")
+        return SaveBatch(username, post.optString("kind"), files)
+    }
+
     fun openMedia(token: String): MediaStream {
         val remote = unsignUrl(token)
         val request = Request.Builder()
@@ -996,6 +1019,14 @@ class InstagramClient {
         mac.init(SecretKeySpec(secret, "HmacSHA256"))
         return mac.doFinal(value.toByteArray(StandardCharsets.UTF_8)).toHex().take(28)
     }
+
+    private fun safeFilePart(raw: String): String {
+        return raw.replace(Regex("[^A-Za-z0-9._-]"), "_").take(36).ifBlank { "nada" }
+    }
+
+    class SaveBatch(val username: String, val kind: String, val files: List<SaveFile>)
+
+    class SaveFile(val url: String, val name: String, val mime: String)
 
     class MediaStream(
         val response: okhttp3.Response,

@@ -7,6 +7,7 @@
       urlLabel: "رابط إنستغرام",
       placeholder: "https://www.instagram.com/reel/…",
       paste: "لصق",
+      clear: "مسح",
       fetch: "جلب المنشور",
       demo: "جرّب مثالاً عاماً",
       publicOnly: "المنشورات العامة فقط",
@@ -85,6 +86,7 @@
       urlLabel: "Instagram link",
       placeholder: "https://www.instagram.com/reel/…",
       paste: "Paste",
+      clear: "Clear",
       fetch: "Fetch post",
       demo: "Try a public example",
       publicOnly: "Public posts only",
@@ -134,7 +136,7 @@
       tabLib: "Library",
       tabAbout: "About",
       bubbleTitle: "Floating button",
-      bubbleBody: "Stays over Instagram. Copy the link, then tap the bubble to fetch it. Long-press to hide. It does not read the screen.",
+      bubbleBody: "Stays over Instagram. Copy the link, then tap the bubble to download in the background. A notification appears. Long-press to hide. It does not read the screen.",
       bubbleOn: "Enable floating button",
       bubbleOff: "Disable floating button",
       loading: "Looking for the post…",
@@ -209,6 +211,9 @@
     });
     document.querySelectorAll("[data-i18n-ph]").forEach((el) => {
       el.placeholder = t(el.dataset.i18nPh);
+    });
+    document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+      el.setAttribute("aria-label", t(el.dataset.i18nAria));
     });
     $("themeBtn").textContent = state.theme === "dark" ? "☀" : "☾";
     if (state.post) renderResult(state.post, false);
@@ -662,6 +667,25 @@
     toast(t("saved"));
   }
 
+  function bindClear(inputEl, btnId) {
+    const btn = $(btnId);
+    if (!inputEl || !btn) return () => {};
+    const sync = () => {
+      btn.hidden = !String(inputEl.value || "").trim();
+    };
+    inputEl.addEventListener("input", sync);
+    btn.addEventListener("click", () => {
+      inputEl.value = "";
+      sync();
+      inputEl.focus();
+    });
+    sync();
+    return sync;
+  }
+
+  const syncUrlClear = bindClear(input, "urlClear");
+  bindClear($("username"), "userClear");
+
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const url = extractIgUrl(input.value) || input.value.trim();
@@ -670,6 +694,7 @@
       return;
     }
     input.value = extractIgUrl(url) || url;
+    syncUrlClear();
     resolve(extractIgUrl(url) || url);
   });
 
@@ -678,6 +703,7 @@
       const text = await navigator.clipboard.readText();
       if (!text) throw new Error("empty");
       input.value = extractIgUrl(text) || text.trim();
+      syncUrlClear();
       toast(t("pasted"));
     } catch {
       toast(t("errClip"));
@@ -686,6 +712,7 @@
 
   $("demoBtn").addEventListener("click", () => {
     input.value = DEMO;
+    syncUrlClear();
     resolve(DEMO);
   });
 
@@ -707,6 +734,7 @@
     if (!state.clip) return;
     $("clipBar").hidden = true;
     input.value = state.clip;
+    syncUrlClear();
     resolve(state.clip);
   });
   $("clipDismiss").addEventListener("click", () => {

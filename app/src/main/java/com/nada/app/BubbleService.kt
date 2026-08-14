@@ -82,6 +82,13 @@ class BubbleService : Service() {
         var startX = 0
         var startY = 0
         var dragged = false
+        var longPressed = false
+        val hideLater = Runnable {
+            if (dragged || longPressed) return@Runnable
+            longPressed = true
+            Prefs.setBubble(this, false)
+            stopSelf()
+        }
         view.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -90,30 +97,33 @@ class BubbleService : Service() {
                     startX = layout.x
                     startY = layout.y
                     dragged = false
+                    longPressed = false
+                    view.removeCallbacks(hideLater)
+                    view.postDelayed(hideLater, 520)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX.toInt() - downX
                     val dy = event.rawY.toInt() - downY
-                    if (dx * dx + dy * dy > dp(8) * dp(8)) dragged = true
+                    if (dx * dx + dy * dy > dp(8) * dp(8)) {
+                        dragged = true
+                        view.removeCallbacks(hideLater)
+                    }
                     layout.x = startX + dx
                     layout.y = startY + dy
                     runCatching { wm.updateViewLayout(view, layout) }
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    if (!dragged && event.actionMasked == MotionEvent.ACTION_UP) {
-                        openApp()
+                    view.removeCallbacks(hideLater)
+                    if (!dragged && !longPressed && event.actionMasked == MotionEvent.ACTION_UP) {
+                        pulse(view)
+                        saveInBackground()
                     }
                     true
                 }
                 else -> false
             }
-        }
-        view.setOnLongClickListener {
-            Prefs.setBubble(this, false)
-            stopSelf()
-            true
         }
         bubble = view
         params = layout
@@ -128,12 +138,20 @@ class BubbleService : Service() {
         windowManager = null
     }
 
-    private fun openApp() {
-        val launch = Intent(this, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            putExtra(EXTRA_FROM_BUBBLE, true)
-        }
-        startActivity(launch)
+    private fun pulse(view: View) {
+        view.animate().cancel()
+        view.animate()
+            .scaleX(0.88f)
+            .scaleY(0.88f)
+            .setDuration(80)
+            .withEndAction {
+                view.animate().scaleX(1f).scaleY(1f).setDuration(140).start()
+            }
+            .start()
+    }
+
+    private fun saveInBackground() {
+        startActivity(QuickSaveActivity.intent(this))
     }
 
     private fun buildNotification(): Notification {
@@ -179,7 +197,6 @@ class BubbleService : Service() {
     }
 
     companion object {
-        const val EXTRA_FROM_BUBBLE = "from_bubble"
         private const val CHANNEL_ID = "nada_bubble"
         private const val NOTIF_ID = 26
         private const val ACTION_STOP = "com.nada.app.STOP_BUBBLE"
