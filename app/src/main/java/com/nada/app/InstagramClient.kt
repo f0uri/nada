@@ -674,6 +674,9 @@ class InstagramClient {
             "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1"
         private const val DOC_ID = "27128499623469141"
         private const val APP_ID = "936619743392459"
+        private const val IG_ANDROID_APP_ID = "567067343352427"
+        private const val IG_MOBILE_UA =
+            "Instagram 192.168.2.5.74 Android (31/12; 420dpi; 1080x2130; Xiaomi; M2101K6G; alioth; qcom; en_US; 376229147)"
         private const val TOKEN_TTL = 45 * 60L
         private val URL_RE = Regex(
             "(?:https?://)?(?:www\\.)?(?:instagram\\.com|instagr\\.am)/(?:[^/?#]+/)?(?:p|tv|reel|reels)/([A-Za-z0-9_-]+)",
