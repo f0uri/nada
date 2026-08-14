@@ -38,6 +38,9 @@ class InstagramClient {
         .followRedirects(false)
         .followSslRedirects(false)
         .build()
+    private val ephemeralClient = client.newBuilder()
+        .cookieJar(CookieJar.NO_COOKIES)
+        .build()
 
     @Volatile
     private var csrf: String = ""
@@ -269,7 +272,12 @@ class InstagramClient {
             .put("cursor", "")
     }
 
-    private fun igGet(url: String, referer: String, mobile: Boolean = false): JSONObject? {
+    private fun igGet(
+        url: String,
+        referer: String,
+        mobile: Boolean = false,
+        sessionCookie: String? = null,
+    ): JSONObject? {
         val token = runCatching { ensureCsrf() }.getOrNull() ?: return null
         val request = Request.Builder()
             .url(url)
@@ -280,10 +288,23 @@ class InstagramClient {
             .header("x-ig-www-claim", "0")
             .header("x-requested-with", "XMLHttpRequest")
             .header("referer", referer)
-            .build()
-        return client.newCall(request).execute().use { response ->
+        if (!sessionCookie.isNullOrBlank()) {
+            request.header("Cookie", "csrftoken=$token; $sessionCookie")
+        }
+        val http = if (sessionCookie.isNullOrBlank()) client else ephemeralClient
+        return http.newCall(request.build()).execute().use { response ->
             if (!response.isSuccessful) return@use null
             runCatching { JSONObject(response.body?.string().orEmpty().ifBlank { "{}" }) }.getOrNull()
+        }
+    }
+
+    fun fetchStoriesOnce(userId: String, sessionCookie: String): JSONArray {
+        val cleanId = userId.filter { it.isDigit() }.take(20)
+        if (cleanId.isBlank() || sessionCookie.isBlank()) return JSONArray()
+        return try {
+            fetchStories(JSONObject().put("id", cleanId).put("pk", cleanId), sessionCookie)
+        } catch (_: Exception) {
+            JSONArray()
         }
     }
 
@@ -302,7 +323,7 @@ class InstagramClient {
         }
     }
 
-    private fun fetchStories(user: JSONObject): JSONArray {
+    private fun fetchStories(user: JSONObject, sessionCookie: String? = null): JSONArray {
         val stories = JSONArray()
         val seen = mutableSetOf<String>()
         val userId = user.optString("id").ifBlank { user.optString("pk") }
@@ -341,8 +362,15 @@ class InstagramClient {
             )
             for (url in liveUrls) {
                 val before = stories.length()
-                collectReelNodes(igGet(url, "https://www.instagram.com/", mobile = url.contains("i.instagram.com")), userId)
-                    .forEach { addNode(it, "قصة") }
+                collectReelNodes(
+                    igGet(
+                        url,
+                        "https://www.instagram.com/",
+                        mobile = url.contains("i.instagram.com"),
+                        sessionCookie = sessionCookie,
+                    ),
+                    userId,
+                ).forEach { addNode(it, "قصة") }
                 if (stories.length() > before) break
             }
 
@@ -351,8 +379,12 @@ class InstagramClient {
                 "https://i.instagram.com/api/v1/highlights/$userId/highlights_tray/",
                 "https://www.instagram.com/api/v1/highlights/$userId/highlights_tray/",
             )) {
-                highlights = igGet(trayUrl, "https://www.instagram.com/", mobile = trayUrl.contains("i.instagram.com"))
-                    ?.optJSONArray("tray") ?: JSONArray()
+                highlights = igGet(
+                    trayUrl,
+                    "https://www.instagram.com/",
+                    mobile = trayUrl.contains("i.instagram.com"),
+                    sessionCookie = sessionCookie,
+                )?.optJSONArray("tray") ?: JSONArray()
                 if (highlights.length() > 0) break
             }
             for (i in 0 until minOf(highlights.length(), 12)) {

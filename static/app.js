@@ -37,6 +37,10 @@
       statFollowing: "يتابع",
       storiesTitle: "ستوريات",
       storiesEmpty: "لا توجد ستوريات عامة حالياً.",
+      storyLogin: "دخول مؤقت للستوريات",
+      storyLoginHint: "نسجّل هذه المرة فقط ثم نمسح الجلسة. لا نخزّن كلمة المرور ولا الكوكيز.",
+      storiesReady: "ظهرت الستوريات.",
+      storiesNeedApp: "الدخول المؤقت يعمل من تطبيق أندرويد.",
       dlStories: "تنزيل الكل",
       postsTitle: "المنشورات والريلز",
       morePosts: "المزيد",
@@ -107,6 +111,10 @@
       statFollowing: "following",
       storiesTitle: "Stories",
       storiesEmpty: "No public stories right now.",
+      storyLogin: "Temporary login for stories",
+      storyLoginHint: "We sign in once, fetch stories, then wipe the session. Nothing is stored.",
+      storiesReady: "Stories loaded.",
+      storiesNeedApp: "Temporary login works in the Android app.",
       dlStories: "Download all",
       postsTitle: "Posts and Reels",
       morePosts: "More",
@@ -554,6 +562,11 @@
     if (profileState) profileState.stories = list;
     empty.hidden = list.length > 0;
     if (dl) dl.hidden = list.length === 0;
+    const loginBtn = $("storyLoginBtn");
+    const hint = $("storyLoginHint");
+    const canAuth = list.length === 0 && !!(profileState && profileState.user_id);
+    if (loginBtn) loginBtn.hidden = !canAuth;
+    if (hint) hint.hidden = !canAuth;
     row.innerHTML = list
       .map((item, i) => {
         const src = item.preview ? mediaUrl(item.preview) : "";

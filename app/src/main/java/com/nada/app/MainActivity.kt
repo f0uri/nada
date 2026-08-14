@@ -8,30 +8,41 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
+import android.view.View
+import android.view.WindowManager
 import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
 import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Button
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import org.json.JSONArray
 import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
+    private lateinit var authOverlay: View
+    private lateinit var authWeb: WebView
     private lateinit var server: NadaServer
     private val instagram = InstagramClient()
     private var pageReady = false
     private var pendingUrl: String? = null
+    private var pendingStoryUserId: String = ""
+    private var storyFetchBusy = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         web = findViewById(R.id.web)
+        authOverlay = findViewById(R.id.authOverlay)
+        authWeb = findViewById(R.id.authWeb)
 
         server = NadaServer(this, instagram)
         server.start()
@@ -49,6 +60,7 @@ class MainActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             setSupportMultipleWindows(false)
         }
+        web.addJavascriptInterface(StoryBridge(), "NadaBridge")
         web.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 pageReady = true
@@ -92,6 +104,8 @@ class MainActivity : AppCompatActivity() {
             manager.enqueue(request)
             Toast.makeText(this, name, Toast.LENGTH_SHORT).show()
         }
+        setupAuthWeb()
+        findViewById<Button>(R.id.authClose).setOnClickListener { closeStoryLogin() }
         web.loadUrl(NadaServer.BASE)
         queueUrl(extractInstagramUrl(intent))
 
@@ -99,6 +113,10 @@ class MainActivity : AppCompatActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    if (authOverlay.visibility == View.VISIBLE) {
+                        closeStoryLogin()
+                        return
+                    }
                     if (web.canGoBack()) {
                         web.goBack()
                     } else {
@@ -108,6 +126,103 @@ class MainActivity : AppCompatActivity() {
                 }
             },
         )
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun setupAuthWeb() {
+        authWeb.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            allowFileAccess = false
+            allowContentAccess = false
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            cacheMode = WebSettings.LOAD_NO_CACHE
+            setSupportMultipleWindows(false)
+        }
+        authWeb.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                if (authOverlay.visibility != View.VISIBLE || storyFetchBusy) return
+                val host = runCatching { Uri.parse(url.orEmpty()).host.orEmpty() }.getOrDefault("")
+                if (!host.endsWith("instagram.com")) return
+                val raw = CookieManager.getInstance().getCookie("https://www.instagram.com").orEmpty()
+                if (!raw.contains("sessionid=")) return
+                val session = keepSessionCookies(raw)
+                if (session.isBlank() || pendingStoryUserId.isBlank()) return
+                storyFetchBusy = true
+                Thread {
+                    val stories = try {
+                        instagram.fetchStoriesOnce(pendingStoryUserId, session)
+                    } catch (_: Exception) {
+                        JSONArray()
+                    }
+                    runOnUiThread {
+                        deliverStories(stories)
+                        closeStoryLogin()
+                    }
+                }.start()
+            }
+
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                val host = request?.url?.host.orEmpty()
+                return !(host == "instagram.com" || host.endsWith(".instagram.com") || host.endsWith("facebook.com") || host.endsWith(".facebook.com"))
+            }
+        }
+    }
+
+    inner class StoryBridge {
+        @JavascriptInterface
+        fun requestStories(userId: String, username: String) {
+            val id = userId.filter { it.isDigit() }.take(20)
+            if (id.isBlank()) return
+            runOnUiThread { openStoryLogin(id) }
+        }
+    }
+
+    private fun openStoryLogin(userId: String) {
+        pendingStoryUserId = userId
+        storyFetchBusy = false
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(authWeb, false)
+        wipeWebCookies()
+        authOverlay.visibility = View.VISIBLE
+        authWeb.loadUrl("https://www.instagram.com/accounts/login/")
+    }
+
+    private fun closeStoryLogin() {
+        pendingStoryUserId = ""
+        storyFetchBusy = false
+        wipeWebCookies()
+        authWeb.stopLoading()
+        authWeb.loadUrl("about:blank")
+        authWeb.clearHistory()
+        authWeb.clearCache(true)
+        authWeb.clearFormData()
+        CookieManager.getInstance().setAcceptCookie(false)
+        authOverlay.visibility = View.GONE
+        window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+    }
+
+    private fun wipeWebCookies() {
+        val manager = CookieManager.getInstance()
+        manager.removeAllCookies(null)
+        manager.flush()
+    }
+
+    private fun keepSessionCookies(raw: String): String {
+        return raw.split(';')
+            .map { it.trim() }
+            .filter { part ->
+                val name = part.substringBefore('=').lowercase()
+                name == "sessionid" || name == "ds_user_id" || name == "csrftoken"
+            }
+            .joinToString("; ")
+    }
+
+    private fun deliverStories(stories: JSONArray) {
+        if (!::web.isInitialized || !pageReady) return
+        val payload = JSONObject.quote(stories.toString())
+        web.evaluateJavascript("window.nadaStoriesReady && window.nadaStoriesReady($payload)", null)
     }
 
     override fun onResume() {
@@ -148,12 +263,13 @@ class MainActivity : AppCompatActivity() {
         if (::server.isInitialized) {
             server.stop()
         }
+        wipeWebCookies()
         super.onDestroy()
     }
 
     companion object {
         private val INSTAGRAM_URL = Regex(
-            "https?://(?:www\\.)?(?:instagram\\.com|instagr\\.am)/\\S+",
+            "https?://(?:www\\\\.)?(?:instagram\\\\.com|instagr\\\\.am)/\\\\S+",
             RegexOption.IGNORE_CASE,
         )
 
