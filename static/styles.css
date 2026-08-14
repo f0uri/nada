@@ -371,8 +371,10 @@ html[dir="rtl"] .primary svg { transform: scaleX(-1); }
 .profile-card {
   margin-top: 12px;
   border-radius: 28px;
-  padding: 20px 16px 16px;
+  padding: 20px 14px 16px;
   text-align: center;
+  overflow: hidden;
+  max-width: 100%;
 }
 .profile-avatar {
   width: 86px !important;
