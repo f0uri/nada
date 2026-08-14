@@ -282,6 +282,7 @@ class MainActivity : AppCompatActivity() {
         if (intent == null) return
         val url = IgLinks.fromIntent(intent)
         if (url.isNotBlank()) {
+            Prefs.setLastIgUrl(this, url)
             queueUrl(url)
             runCatching { QuickSaveService.start(this, url) }
             return
@@ -304,6 +305,7 @@ class MainActivity : AppCompatActivity() {
         val clean = url?.trim().orEmpty()
         if (clean.isBlank()) return
         pendingUrl = clean
+        Prefs.setLastIgUrl(this, clean)
         deliverPending()
     }
 

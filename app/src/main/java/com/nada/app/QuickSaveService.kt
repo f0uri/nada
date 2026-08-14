@@ -72,19 +72,28 @@ class QuickSaveService : Service() {
 
     private fun runSave(url: String) {
         goForeground(getString(R.string.save_working))
-        try {
-            val batch = instagram.prepareSave(url)
-            for (file in batch.files) {
-                writeRemote(file)
-            }
-            val who = "@${batch.username}"
-            val detail = getString(R.string.save_files, batch.files.size)
-            notifyDone("$who · $detail", error = false)
-        } catch (ex: InstagramClient.ApiException) {
-            notifyDone(mapError(ex), error = true)
-        } catch (_: Exception) {
-            notifyDone(getString(R.string.save_fail_net), error = true)
+        val result = runCatching { instagram.prepareSave(url) }.recoverCatching {
+            Thread.sleep(700)
+            instagram.prepareSave(url)
         }
+        result.fold(
+            onSuccess = { batch ->
+                try {
+                    for (file in batch.files) writeRemote(file)
+                    val who = "@${batch.username}"
+                    val detail = getString(R.string.save_files, batch.files.size)
+                    notifyDone("$who · $detail", error = false)
+                } catch (ex: InstagramClient.ApiException) {
+                    notifyDone(mapError(ex), error = true)
+                } catch (_: Exception) {
+                    notifyDone(getString(R.string.save_fail_net), error = true)
+                }
+            },
+            onFailure = { err ->
+                if (err is InstagramClient.ApiException) notifyDone(mapError(err), error = true)
+                else notifyDone(getString(R.string.save_fail_net), error = true)
+            },
+        )
     }
 
     private fun writeRemote(file: InstagramClient.SaveFile) {
@@ -158,7 +167,17 @@ class QuickSaveService : Service() {
     private fun goForeground(text: String) {
         val notification = buildNotification(getString(R.string.save_working), text, ongoing = true, error = false)
         if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(WORK_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE)
+            val started = runCatching {
+                startForeground(WORK_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            }.isSuccess
+            if (!started) {
+                runCatching {
+                    startForeground(WORK_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE)
+                }.onFailure {
+                    @Suppress("DEPRECATION")
+                    startForeground(WORK_ID, notification)
+                }
+            }
         } else {
             @Suppress("DEPRECATION")
             startForeground(WORK_ID, notification)

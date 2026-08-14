@@ -34,10 +34,11 @@ class QuickSaveActivity : Activity() {
     private fun handOff() {
         if (handed || isFinishing) return
         handed = true
-        val url = IgLinks.fromText(clipText())
+        val url = IgLinks.fromText(clipText()).ifBlank { Prefs.lastIgUrl(this) }
         if (url.isBlank()) {
             QuickSaveService.notifyNeedLink(this)
         } else {
+            Prefs.setLastIgUrl(this, url)
             QuickSaveService.start(this, url)
         }
         finish()

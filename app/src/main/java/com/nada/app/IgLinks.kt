@@ -6,7 +6,7 @@ import android.os.Build
 
 object IgLinks {
     private val ANY = Regex(
-        """https?://(?:www\.)?(?:l\.)?(?:instagram\.com|instagr\.am)/[^\s<>"'\]\)]+""",
+        """(?:https?://)?(?:www\.)?(?:l\.)?(?:instagram\.com|instagr\.am)/[^\s<>"'\]\)]+""",
         RegexOption.IGNORE_CASE,
     )
     private val L_IG = Regex(
@@ -37,7 +37,8 @@ object IgLinks {
         val found = stripMarks(raw).trimEnd(')', ']', '"', '\'', '>', ',', '،', '.', '…')
         if (found.isBlank()) return ""
         return try {
-            val uri = Uri.parse(found)
+            val withScheme = if (found.startsWith("http", ignoreCase = true)) found else "https://$found"
+            val uri = Uri.parse(withScheme)
             val host = uri.host.orEmpty().lowercase()
             if (host.contains("l.instagram.com")) {
                 val nested = uri.getQueryParameter("u").orEmpty()
@@ -71,7 +72,14 @@ object IgLinks {
         intent.getStringExtra(Intent.EXTRA_TEXT)?.let { parts += it }
         intent.getStringExtra(Intent.EXTRA_SUBJECT)?.let { parts += it }
         intent.getStringExtra(Intent.EXTRA_HTML_TEXT)?.let { parts += it }
+        intent.getStringExtra("android.intent.extra.PROCESS_TEXT")?.let { parts += it }
+        intent.getStringExtra("com.instagram.url")?.let { parts += it }
+        intent.getStringExtra("url")?.let { parts += it }
+        intent.getStringExtra("link")?.let { parts += it }
         intent.dataString?.let { parts += it }
+        intent.extras?.keySet()?.forEach { key ->
+            runCatching { intent.getStringExtra(key) }.getOrNull()?.let { parts += it }
+        }
         intent.clipData?.let { clip ->
             for (i in 0 until clip.itemCount) {
                 clip.getItemAt(i).text?.toString()?.let { parts += it }

@@ -248,6 +248,7 @@ object Prefs {
     private const val FILE = "nada_prefs"
     private const val BUBBLE = "bubble_on"
     private const val VISIBLE = "bubble_visible"
+    private const val LAST_URL = "last_ig_url"
 
     fun bubbleOn(context: Context): Boolean {
         return context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(BUBBLE, false)
@@ -263,5 +264,15 @@ object Prefs {
 
     fun setBubbleVisible(context: Context, on: Boolean) {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(VISIBLE, on).apply()
+    }
+
+    fun lastIgUrl(context: Context): String {
+        return context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(LAST_URL, "").orEmpty()
+    }
+
+    fun setLastIgUrl(context: Context, url: String) {
+        val clean = IgLinks.fromText(url).ifBlank { IgLinks.tidy(url) }
+        if (clean.isBlank()) return
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(LAST_URL, clean).apply()
     }
 }

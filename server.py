@@ -1203,7 +1203,7 @@ def tidy_ig_url(raw: str) -> str:
     if not text:
         return ""
     found = re.search(
-        r"https?://(?:www\.)?(?:l\.)?(?:instagram\.com|instagr\.am)/[^\s<>\"'\]\)]+",
+        r"(?:https?://)?(?:www\.)?(?:l\.)?(?:instagram\.com|instagr\.am)/[^\s<>\"'\]\)]+",
         text,
         re.I,
     )
@@ -1307,6 +1307,9 @@ async def resolve(payload: ResolveIn, request: Request):
         if parse_story(url):
             return await ig.resolve_story(url)
         shortcode = parse_shortcode(url)
+        cached = ig.cached_post(shortcode)
+        if cached and cached.get("media"):
+            return cached
         item = await ig.web_info(shortcode)
     except HTTPException:
         raise

@@ -113,6 +113,22 @@ class InstagramClient {
             }
         }
         if (!IgLinks.needsExpand(current) && IgLinks.shortcodeFrom(current) != null) return current
+        runCatching {
+            val request = Request.Builder()
+                .url(current)
+                .header("User-Agent", UA)
+                .header("Accept-Language", "ar,en-US;q=0.8,en;q=0.6")
+                .header("Accept", "text/html,application/xhtml+xml")
+                .build()
+            client.newCall(request).execute().use { response ->
+                val finalUrl = response.request.url.toString()
+                val tidyFinal = IgLinks.fromText(finalUrl).ifBlank { IgLinks.tidy(finalUrl) }
+                if (IgLinks.shortcodeFrom(tidyFinal) != null) return tidyFinal
+                val html = response.body?.string().orEmpty()
+                extractPostUrlFromHtml(html)?.let { return it }
+                if (tidyFinal.isNotBlank()) current = tidyFinal
+            }
+        }
         val seen = mutableSetOf<String>()
         repeat(6) {
             if (!seen.add(current)) return current
@@ -173,6 +189,15 @@ class InstagramClient {
             val code = match.groupValues[1]
             if (code.lowercase() in setOf("videos", "embed", "share")) continue
             return "https://www.instagram.com/reel/$code/"
+        }
+        Regex("\"(?:shortcode|code)\"\\s*:\\s*\"([A-Za-z0-9_-]{5,32})\"").find(html)?.groupValues?.get(1)?.let { code ->
+            if (code.lowercase() !in setOf("videos", "embed", "share")) {
+                return "https://www.instagram.com/reel/$code/"
+            }
+        }
+        Regex("instagram://media\\?id=(\\d+)").find(html)?.groupValues?.get(1)?.let { id ->
+            val code = mediaIdToShortcode(id)
+            if (code.isNotBlank()) return "https://www.instagram.com/reel/$code/"
         }
         return null
     }
@@ -353,11 +378,7 @@ class InstagramClient {
             val items = payload.optJSONObject("data")
                 ?.optJSONObject("xdt_api__v1__media__shortcode__web_info")
                 ?.optJSONArray("items") ?: JSONArray()
-            if (items.length() == 0) throw ApiException(404, "missing")
-            return items.getJSONObject(0)
-        }
-    }
-
+            if (items.length
     private fun packPost(item: JSONObject, shortcode: String): JSONObject {
         val user = item.optJSONObject("user") ?: JSONObject()
         val captionObj = item.opt("caption")
@@ -1447,6 +1468,10 @@ private fun String.hexToBytes(): ByteArray {
     val clean = URLDecoder.decode(this, "UTF-8")
     require(clean.length % 2 == 0)
     return ByteArray(clean.length / 2) { i ->
+        clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+    }
+}
+teArray(clean.length / 2) { i ->
         clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()
     }
 }
