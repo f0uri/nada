@@ -29,6 +29,8 @@
       copyBio: "نسخ البايو",
       madeBy: "صُنع بواسطة",
       creditBody: "تصميم، تطوير، وحقوق هذا التطبيق.",
+      dhikrLabel: "ذكر",
+      dhikrAmen: "آمين",
       bioCopied: "نُسخ البايو",
       noBio: "لا يوجد بايو.",
       errUser: "اسم المستخدم غير صالح.",
@@ -109,6 +111,8 @@
       copyBio: "Copy bio",
       madeBy: "Made by",
       creditBody: "Designed and developed, with all rights reserved.",
+      dhikrLabel: "Remembrance",
+      dhikrAmen: "Ameen",
       bioCopied: "Bio copied",
       noBio: "No bio.",
       errUser: "That username is not valid.",
@@ -871,7 +875,7 @@
   document.addEventListener("click", (e) => {
     if (!e.isTrusted || !state.sound) return;
     const btn = e.target.closest("button");
-    if (!btn || btn.disabled || btn.hidden || btn.id === "soundBtn") return;
+    if (!btn || btn.disabled || btn.hidden || btn.id === "soundBtn" || btn.id === "dhikrOk") return;
     if (btn.classList.contains("primary") || btn.id === "go" || btn.id === "dlBtn" || btn.id === "profileGo") {
       Sound.play("go");
       return;
@@ -1062,6 +1066,8 @@
   window.nadaOpen = function nadaOpen(url) {
     const text = extractIgUrl(url);
     if (!text) return;
+    skipDhikr = true;
+    hideDhikr();
     input.value = text;
     syncUrlClear();
     showView("home");
@@ -1121,6 +1127,54 @@
     if (found) showClip(found);
   };
 
+  const ADHKAR = [
+    "أستغفر الله",
+    "أستغفر الله العظيم وأتوب إليه",
+    "سبحان الله",
+    "سبحان الله وبحمده",
+    "سبحان الله العظيم",
+    "الحمد لله",
+    "لا إله إلا الله",
+    "الله أكبر",
+    "لا حول ولا قوة إلا بالله",
+    "اللهم صلِّ على محمد",
+  ];
+  let skipDhikr = false;
+  let dhikrTimer = 0;
+  let dhikrAt = 0;
+
+  function hideDhikr() {
+    clearTimeout(dhikrTimer);
+    const el = $("dhikr");
+    if (el) el.hidden = true;
+  }
+
+  function showDhikr() {
+    if (skipDhikr) return;
+    const el = $("dhikr");
+    const textEl = $("dhikrText");
+    if (!el || !textEl) return;
+    const now = Date.now();
+    if (now - dhikrAt < 6000) return;
+    let last = -1;
+    try { last = Number(localStorage.getItem("nada-dhikr") || "-1"); } catch (_) {}
+    let i = Math.floor(Math.random() * ADHKAR.length);
+    if (ADHKAR.length > 1 && i === last) i = (i + 1) % ADHKAR.length;
+    try { localStorage.setItem("nada-dhikr", String(i)); } catch (_) {}
+    textEl.textContent = ADHKAR[i];
+    el.hidden = false;
+    dhikrAt = now;
+    clearTimeout(dhikrTimer);
+    dhikrTimer = setTimeout(hideDhikr, 5000);
+  }
+
+  const dhikrRoot = $("dhikr");
+  if (dhikrRoot) {
+    dhikrRoot.addEventListener("click", (e) => {
+      if (e.target === dhikrRoot || e.target.id === "dhikrOk") hideDhikr();
+    });
+  }
+
   applyTheme();
   applyLang();
   renderLibrary();
@@ -1128,10 +1182,17 @@
   tick();
   setInterval(tick, 15000);
   const boot = new URLSearchParams(location.search).get("url");
-  if (boot) window.nadaOpen(boot);
-  else checkClipboard();
+  if (boot) {
+    skipDhikr = true;
+    window.nadaOpen(boot);
+  } else {
+    showDhikr();
+    checkClipboard();
+  }
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") checkClipboard();
+    if (document.visibilityState !== "visible") return;
+    checkClipboard();
+    if (!skipDhikr) showDhikr();
   });
 })();
 

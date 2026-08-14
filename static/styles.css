@@ -839,6 +839,41 @@ html[dir="ltr"] .circle svg { transform: scaleX(-1); }
   animation: rise .35s ease;
 }
 
+.dhikr {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  display: grid;
+  place-items: center;
+  padding: 28px 22px calc(28px + var(--safe-b));
+  background: rgba(28, 22, 18, 0.42);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+html[data-theme="dark"] .dhikr {
+  background: rgba(8, 6, 5, 0.55);
+}
+.dhikr-card {
+  width: min(100%, 300px);
+  border-radius: 26px;
+  padding: 22px 20px 16px;
+  text-align: center;
+}
+.dhikr-label {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  margin-bottom: 10px;
+}
+.dhikr-text {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.75;
+  margin: 0 0 16px;
+}
+#dhikrOk { width: 100%; }
+
 @media (min-width: 760px) {
   .device-chrome { display: block; }
   .island {
