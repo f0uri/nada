@@ -29,6 +29,7 @@ SECRET = bytes((
 ))
 TOKEN_TTL = 45 * 60
 DOC_ID = "27128499623469141"
+POLARIS_DOC = "27130156389949648"
 APP_ID = "936619743392459"
 IG_ANDROID_APP_ID = "567067343352427"
 PROFILE_DOC_IDS = ("27937681195819736", "26672929172408668")
@@ -90,6 +91,7 @@ class InstagramSession:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._csrf = ""
+        self._lsd = ""
         self._csrf_at = 0.0
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(25.0, connect=10.0),
@@ -113,7 +115,18 @@ class InstagramSession:
                 csrf = m.group(1) if m else ""
             if not csrf:
                 raise RuntimeError("csrf")
+            eq = re.search(r'<script[^>]*id="__eqmc"[^>]*>(\{.+?\})</script>', r.text)
+            lsd = ""
+            if eq:
+                try:
+                    lsd = str((json.loads(eq.group(1)) or {}).get("l") or "")
+                except Exception:
+                    lsd = ""
+            if not lsd:
+                m = re.search(r'\["LSD",\[\],\{"token":"([^"]+)"', r.text)
+                lsd = m.group(1) if m else ""
             self._csrf = csrf
+            self._lsd = lsd
             self._csrf_at = time.time()
             return csrf
 
@@ -165,9 +178,53 @@ class InstagramSession:
             .get("items")
             or []
         )
-        if not items:
-            raise HTTPException(404, "missing")
-        return items[0]
+        if items:
+            return items[0]
+        polaris = await self.polaris_media(shortcode)
+        if polaris:
+            return polaris
+        raise HTTPException(404, "missing")
+
+    async def polaris_media(self, shortcode: str) -> dict[str, Any] | None:
+        try:
+            csrf = await self.ensure()
+        except Exception:
+            return None
+        pk = shortcode_to_media_id(shortcode)
+        if not pk:
+            return None
+        body = {
+            "lsd": self._lsd,
+            "fb_api_caller_class": "RelayModern",
+            "fb_api_req_friendly_name": "PolarisLoggedOutDesktopWWWPostRootContentQuery",
+            "server_timestamps": "true",
+            "variables": json.dumps({"media_id": pk}, separators=(",", ":")),
+            "doc_id": POLARIS_DOC,
+        }
+        try:
+            r = await self.client.post(
+                "https://www.instagram.com/api/graphql",
+                headers={
+                    "content-type": "application/x-www-form-urlencoded",
+                    "x-ig-app-id": APP_ID,
+                    "x-asbd-id": "359341",
+                    "x-csrftoken": csrf,
+                    "x-fb-lsd": self._lsd,
+                    "x-fb-friendly-name": "PolarisLoggedOutDesktopWWWPostRootContentQuery",
+                    "x-requested-with": "XMLHttpRequest",
+                    "origin": "https://www.instagram.com",
+                    "referer": f"https://www.instagram.com/reel/{shortcode}/",
+                },
+                data=body,
+            )
+            payload = r.json()
+        except Exception:
+            return None
+        polaris = ((payload.get("data") or {}).get("xig_polaris_media")) or {}
+        item = polaris.get("if_not_gated_logged_out") or polaris
+        if isinstance(item, dict) and (item.get("pk") or item.get("code")):
+            return item
+        return None
 
     async def profile(self, username: str) -> dict[str, Any]:
         user = await self.web_profile(username)
@@ -926,16 +983,58 @@ def best_image(node: dict[str, Any]) -> dict[str, Any] | None:
     return cands[0]
 
 
+def clean_media_url(raw: str) -> str:
+    return decode_entities(raw or "").replace("\\/", "/").replace("\\u0026", "&").strip().strip("\"'")
+
+
+def videos_from_dash(manifest: str) -> list[dict[str, Any]]:
+    if not manifest:
+        return []
+    xml = decode_entities(manifest)
+    out: list[dict[str, Any]] = []
+    for match in re.finditer(
+        r"<Representation\b([^>]*)>.*?<BaseURL>([^<]+)</BaseURL>",
+        xml,
+        re.I | re.S,
+    ):
+        attrs, base = match.group(1), match.group(2)
+        mime_m = re.search(r'mimeType="([^"]+)"', attrs, re.I)
+        mime = mime_m.group(1) if mime_m else ""
+        if mime.lower().startswith("audio"):
+            continue
+        url = clean_media_url(decode_entities(base))
+        if not url or not host_ok(url):
+            continue
+        width_m = re.search(r'width="(\d+)"', attrs)
+        height_m = re.search(r'height="(\d+)"', attrs)
+        out.append({
+            "url": url,
+            "width": int(width_m.group(1)) if width_m else 0,
+            "height": int(height_m.group(1)) if height_m else 0,
+        })
+    return out
+
+
 def best_video(node: dict[str, Any]) -> dict[str, Any] | None:
     raw_vers = node.get("video_versions")
-    vers = [v for v in (raw_vers or []) if isinstance(v, dict) and v.get("url") and host_ok(v["url"])]
-    direct = node.get("video_url") or node.get("playback_url") or ""
-    if isinstance(direct, str) and direct and host_ok(direct):
+    vers = []
+    for v in (raw_vers or []):
+        if not isinstance(v, dict):
+            continue
+        url = clean_media_url(str(v.get("url") or ""))
+        if url and host_ok(url):
+            item = dict(v)
+            item["url"] = url
+            vers.append(item)
+    direct = clean_media_url(str(node.get("video_url") or node.get("playback_url") or ""))
+    if direct and host_ok(direct):
         vers.append({
             "url": direct,
             "width": node.get("original_width") or ((node.get("dimensions") or {}).get("width")),
             "height": node.get("original_height") or ((node.get("dimensions") or {}).get("height")),
         })
+    if not vers:
+        vers = videos_from_dash(str(node.get("video_dash_manifest") or ""))
     if not vers:
         return None
     vers.sort(key=lambda v: int(v.get("width") or 0) * int(v.get("height") or 0), reverse=True)
@@ -1053,6 +1152,16 @@ def parse_story(raw: str) -> dict[str, str] | None:
     return None
 
 
+def shortcode_to_media_id(code: str) -> str:
+    value = 0
+    for ch in code or "":
+        idx = ALPHABET.find(ch)
+        if idx < 0:
+            return ""
+        value = value * 64 + idx
+    return str(value) if value > 0 else ""
+
+
 def media_id_to_shortcode(media_id: str) -> str:
     digits = "".join(ch for ch in (media_id or "") if ch.isdigit())
     if not digits:
@@ -1088,6 +1197,21 @@ def tidy_ig_url(raw: str) -> str:
             if dest:
                 return tidy_ig_url(unquote(dest))
         path = re.sub(r"/{2,}", "/", parsed.path or "").rstrip("/")
+        low = path.lower()
+        if low == "/accounts/login" or low.startswith("/accounts/login/") or low == "/login":
+            from urllib.parse import parse_qs, unquote
+            nxt = (parse_qs(parsed.query).get("next") or [""])[0]
+            if nxt:
+                decoded = unquote(nxt)
+                if decoded.startswith("http"):
+                    nested = decoded
+                elif decoded.startswith("/"):
+                    nested = f"https://www.instagram.com{decoded}"
+                else:
+                    nested = f"https://www.instagram.com/{decoded}"
+                inner = tidy_ig_url(nested)
+                if inner:
+                    return inner
         if not path or path == "/":
             return ""
         return f"https://www.instagram.com{path}/"
@@ -1099,7 +1223,14 @@ def needs_expand(url: str) -> bool:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
     path = (parsed.path or "").lower()
-    return "l.instagram.com" in host or "/share" in path or path.startswith("/s/")
+    return (
+        "l.instagram.com" in host
+        or "/share" in path
+        or path.startswith("/s/")
+        or "/accounts/login" in path
+        or path == "/login"
+        or path.startswith("/login/")
+    )
 
 
 def looks_like_post(url: str) -> bool:
@@ -1228,7 +1359,7 @@ async def media(
         upstream = await ig.client.send(
             ig.client.build_request("GET", url, headers=headers),
             stream=True,
-            follow_redirects=False,
+            follow_redirects=True,
         )
     except httpx.HTTPError as exc:
         raise HTTPException(502, "cdn") from exc

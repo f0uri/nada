@@ -45,6 +45,20 @@ object IgLinks {
             }
             if (!host.contains("instagram.com") && !host.contains("instagr.am")) return ""
             val path = uri.path.orEmpty().replace(Regex("/{2,}"), "/").trimEnd('/')
+            val lowPath = path.lowercase()
+            if (lowPath == "/accounts/login" || lowPath.startsWith("/accounts/login/") || lowPath == "/login") {
+                val next = uri.getQueryParameter("next").orEmpty()
+                if (next.isNotBlank()) {
+                    val decoded = Uri.decode(next)
+                    val nested = when {
+                        decoded.startsWith("http") -> decoded
+                        decoded.startsWith("/") -> "https://www.instagram.com$decoded"
+                        else -> "https://www.instagram.com/$decoded"
+                    }
+                    val inner = tidy(nested)
+                    if (inner.isNotBlank()) return inner
+                }
+            }
             if (path.isBlank() || path == "/") "" else "https://www.instagram.com$path/"
         } catch (_: Exception) {
             found.substringBefore('?').substringBefore('#')
@@ -94,7 +108,10 @@ object IgLinks {
         return host.contains("l.instagram.com") ||
             path.contains("/share") ||
             path.startsWith("/s/") ||
-            path.contains("/share/")
+            path.contains("/share/") ||
+            path.contains("/accounts/login") ||
+            path == "/login" ||
+            path.startsWith("/login/")
     }
 
     fun shortcodeFrom(url: String): String? {
