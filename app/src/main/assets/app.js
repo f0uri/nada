@@ -672,12 +672,4 @@
     if (document.visibilityState === "visible") checkClipboard();
   });
 })();
-visibilitychange", () => {
-    if (document.visibilityState === "visible") checkClipboard();
-  });
-})();
- });
-})();
-== "visible") checkClipboard();
-  });
-})();
+
