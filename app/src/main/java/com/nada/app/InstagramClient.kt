@@ -59,7 +59,8 @@ class InstagramClient {
         }
         val resolved = user ?: profileUserFromHtml(username)
         enrichUser(resolved)
-        return attachPosts(packProfile(resolved), resolved)
+        val packed = packProfile(resolved)
+        return attachPosts(attachStories(packed, resolved), resolved)
     }
 
     fun resolve(rawUrl: String): JSONObject {
