@@ -314,67 +314,98 @@ class InstagramSession:
     async def stories(self, user: dict[str, Any]) -> list[dict[str, Any]]:
         user_id = str(user.get("id") or user.get("pk") or "")
         items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add_node(node: dict[str, Any], title: str) -> None:
+            packed = pack_media(node, len(items) + 1)
+            if not packed:
+                return
+            key = str(packed.get("id") or "")
+            if key and key in seen:
+                return
+            if key:
+                seen.add(key)
+            packed["title"] = title[:18] or "قصة"
+            items.append(packed)
+
+        def add_cover(hid: str, title: str, cover: str) -> None:
+            if not cover or not host_ok(cover):
+                return
+            key = f"cover:{hid or title}"
+            if key in seen:
+                return
+            seen.add(key)
+            items.append({
+                "id": hid or title,
+                "index": len(items) + 1,
+                "kind": "image",
+                "preview": sign_url(cover),
+                "file": sign_url(cover),
+                "ext": "jpg",
+                "title": (title or "هايلايت")[:18],
+            })
+
         if user_id:
-            live = await self._ig_get(
-                f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={quote(user_id)}",
-                "https://www.instagram.com/",
+            live_urls = (
+                (f"https://i.instagram.com/api/v1/feed/user/{quote(user_id)}/reel_media/", True),
+                (f"https://i.instagram.com/api/v1/feed/user/{quote(user_id)}/story/", True),
+                (f"https://i.instagram.com/api/v1/feed/reels_media/?reel_ids={quote(user_id)}", True),
+                (f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={quote(user_id)}", False),
+                (f"https://www.instagram.com/api/v1/feed/user/{quote(user_id)}/story/", False),
             )
-            reels = (live or {}).get("reels") or {}
-            tray = reels.get(user_id) or reels.get(str(user_id)) or {}
-            for node in tray.get("items") or []:
-                packed = pack_media(node, len(items) + 1)
-                if packed:
-                    packed["title"] = "قصة"
-                    items.append(packed)
-            tray_data = await self._ig_get(
-                f"https://www.instagram.com/api/v1/highlights/{quote(user_id)}/highlights_tray/",
-                "https://www.instagram.com/",
+            for url, mobile in live_urls:
+                data = await self._ig_get(url, "https://www.instagram.com/", mobile=mobile)
+                before = len(items)
+                for node in collect_reel_nodes(data, user_id):
+                    add_node(node, "قصة")
+                if len(items) > before:
+                    break
+
+            tray_urls = (
+                (f"https://i.instagram.com/api/v1/highlights/{quote(user_id)}/highlights_tray/", True),
+                (f"https://www.instagram.com/api/v1/highlights/{quote(user_id)}/highlights_tray/", False),
             )
-            highlights = (tray_data or {}).get("tray") or []
+            highlights: list[Any] = []
+            for tray_url, mobile in tray_urls:
+                tray_data = await self._ig_get(tray_url, "https://www.instagram.com/", mobile=mobile)
+                highlights = (tray_data or {}).get("tray") or []
+                if highlights:
+                    break
             for hl in highlights[:12]:
+                if not isinstance(hl, dict):
+                    continue
                 hid = str(hl.get("id") or "").replace("highlight:", "")
                 cover = (
                     ((hl.get("cover_media") or {}).get("cropped_image_version") or {}).get("url")
                     or ((hl.get("cover_media") or {}).get("thumbnail_src"))
+                    or ""
                 )
-                title = ((hl.get("title") or "هايلايت")[:18])
+                title = str(hl.get("title") or "هايلايت")
+                added = 0
                 if hid:
                     detail = await self._ig_get(
+                        f"https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:{quote(hid)}",
+                        "https://www.instagram.com/",
+                        mobile=True,
+                    ) or await self._ig_get(
                         f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:{quote(hid)}",
                         "https://www.instagram.com/",
                     )
-                    reel = ((detail or {}).get("reels") or {}).get(f"highlight:{hid}") or {}
-                    for node in reel.get("items") or []:
-                        packed = pack_media(node, len(items) + 1)
-                        if packed:
-                            packed["title"] = title
-                            items.append(packed)
-                elif cover and host_ok(cover):
-                    items.append({
-                        "id": hid or title,
-                        "index": len(items) + 1,
-                        "kind": "image",
-                        "preview": sign_url(cover),
-                        "file": sign_url(cover),
-                        "ext": "jpg",
-                        "title": title,
-                    })
-        edges = ((user.get("edge_highlight_reels") or {}).get("edges")) or []
+                    for node in collect_reel_nodes(detail, f"highlight:{hid}"):
+                        before = len(items)
+                        add_node(node, title)
+                        if len(items) > before:
+                            added += 1
+                if added == 0:
+                    add_cover(hid, title, cover)
+
         if not items:
+            edges = ((user.get("edge_highlight_reels") or {}).get("edges")) or []
             for edge in edges[:12]:
                 node = (edge or {}).get("node") or {}
                 cover = ((node.get("cover_media") or {}).get("thumbnail_src")) or ""
-                title = (node.get("title") or "هايلايت")[:18]
-                if cover and host_ok(cover):
-                    items.append({
-                        "id": str(node.get("id") or title),
-                        "index": len(items) + 1,
-                        "kind": "image",
-                        "preview": sign_url(cover),
-                        "file": sign_url(cover),
-                        "ext": "jpg",
-                        "title": title,
-                    })
+                title = str(node.get("title") or "هايلايت")
+                add_cover(str(node.get("id") or title), title, cover)
         return items[:24]
 
     async def user_posts(self, user: dict[str, Any], cursor: str | None = None) -> tuple[list[dict[str, Any]], str]:
@@ -801,6 +832,39 @@ def kind_of(item: dict[str, Any]) -> str:
     if media_type == 2 or item.get("video_versions"):
         return "video"
     return "photo"
+
+
+def collect_reel_nodes(data: dict[str, Any] | None, user_id: str = "") -> list[dict[str, Any]]:
+    if not isinstance(data, dict):
+        return []
+    nodes: list[dict[str, Any]] = []
+    items = data.get("items")
+    if isinstance(items, list):
+        nodes.extend(n for n in items if isinstance(n, dict))
+    reel = data.get("reel")
+    if isinstance(reel, dict):
+        nodes.extend(n for n in (reel.get("items") or []) if isinstance(n, dict))
+    reels = data.get("reels")
+    if isinstance(reels, dict):
+        keys = [user_id, str(user_id)]
+        if user_id:
+            keys.append(f"highlight:{user_id.replace('highlight:', '')}")
+        found = False
+        for key in keys:
+            tray = reels.get(key)
+            if isinstance(tray, dict):
+                nodes.extend(n for n in (tray.get("items") or []) if isinstance(n, dict))
+                found = True
+        if not found:
+            for tray in reels.values():
+                if isinstance(tray, dict):
+                    nodes.extend(n for n in (tray.get("items") or []) if isinstance(n, dict))
+    media = data.get("reels_media")
+    if isinstance(media, list):
+        for tray in media:
+            if isinstance(tray, dict):
+                nodes.extend(n for n in (tray.get("items") or []) if isinstance(n, dict))
+    return nodes
 
 
 def pack_media(node: dict[str, Any], index: int) -> dict[str, Any] | None:

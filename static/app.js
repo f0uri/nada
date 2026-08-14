@@ -43,7 +43,7 @@
       clipTitle: "رابط في الحافظة",
       clipGo: "جلب",
       a1t: "للمنشورات العامة",
-      a1b: "يعمل مع الريلز والصور والألبومات العامة. الحسابات الخاصة والقصص غير مدعومة.",
+      a1b: "يعمل مع الريلز والصور والألبومات العامة. الستوريات العامة تُعرض إن وُجدت.",
       a2t: "بلا علامة مائية",
       a2b: "نأخذ الملف كما نشره صاحبه. الجودة هي جودة إنستغرام الأصلية المتاحة.",
       a3t: "احترام المبدعين",
@@ -113,7 +113,7 @@
       clipTitle: "Link on clipboard",
       clipGo: "Fetch",
       a1t: "Public posts",
-      a1b: "Works with public Reels, photos, and albums. Private accounts and Stories are not supported.",
+      a1b: "Works with public Reels, photos, and albums. Public stories appear when Instagram allows them.",
       a2t: "No watermark",
       a2b: "You get the file as published. Quality is Instagram’s original available version.",
       a3t: "Respect creators",
@@ -196,7 +196,10 @@
     });
     $("themeBtn").textContent = state.theme === "dark" ? "☀" : "☾";
     if (state.post) renderResult(state.post, false);
-    if (profileState) renderProfileGrid(profileState.posts || []);
+    if (profileState) {
+      renderStories(profileState.stories || []);
+      renderProfileGrid(profileState.posts || []);
+    }
     renderLibrary();
   }
 
@@ -536,9 +539,55 @@
     $("statPosts").textContent = compact(data.post_count);
     $("statFollowers").textContent = compact(data.followers);
     $("statFollowing").textContent = compact(data.following);
+    renderStories(data.stories || []);
     renderProfileGrid(data.posts || []);
     const more = $("morePosts");
     if (more) more.hidden = !data.cursor;
+  }
+
+  function renderStories(items) {
+    const row = $("storiesRow");
+    const empty = $("storiesEmpty");
+    const dl = $("dlStoriesBtn");
+    if (!row || !empty) return;
+    const list = Array.isArray(items) ? items : [];
+    if (profileState) profileState.stories = list;
+    empty.hidden = list.length > 0;
+    if (dl) dl.hidden = list.length === 0;
+    row.innerHTML = list
+      .map((item, i) => {
+        const src = item.preview ? mediaUrl(item.preview) : "";
+        const label = escapeHtml(item.title || t("storiesTitle"));
+        return `<button class="story-chip" type="button" data-story="${i}">
+          ${src ? `<img alt="" src="${escapeHtml(src)}" />` : `<span class="lib-ph" style="width:64px;height:64px;border-radius:50%;margin:0 auto 6px"></span>`}
+          <span>${label}</span>
+        </button>`;
+      })
+      .join("");
+  }
+
+  function openStory(index) {
+    const list = (profileState && profileState.stories) || [];
+    const item = list[index];
+    if (!item || !item.file) return;
+    const post = {
+      ok: true,
+      shortcode: String(item.id || `story-${index + 1}`),
+      kind: item.kind === "video" ? "video" : "photo",
+      caption: item.title || "",
+      likes: null,
+      comments: null,
+      media: [item],
+      owner: {
+        username: profileState.username || "",
+        name: profileState.name || "",
+        avatar: profileState.avatar || null,
+      },
+      source: `https://www.instagram.com/stories/${profileState.username || ""}/`,
+    };
+    state.post = post;
+    renderResult(post, true);
+    showView("result");
   }
 
   function renderProfileGrid(items) {
@@ -737,6 +786,39 @@
   document.querySelectorAll(".tab").forEach((btn) => {
     btn.addEventListener("click", () => showView(btn.dataset.tab));
   });
+
+  const storiesRow = $("storiesRow");
+  if (storiesRow) {
+    storiesRow.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-story]");
+      if (!btn) return;
+      const index = Number(btn.dataset.story);
+      if (!Number.isFinite(index)) return;
+      openStory(index);
+    });
+  }
+  const dlStoriesBtn = $("dlStoriesBtn");
+  if (dlStoriesBtn) {
+    dlStoriesBtn.addEventListener("click", async () => {
+      const list = (profileState && profileState.stories) || [];
+      if (!list.length) {
+        toast(t("storiesEmpty"));
+        return;
+      }
+      for (const item of list) {
+        if (!item.file) continue;
+        const a = document.createElement("a");
+        const name = `${profileState.username || "story"}_${item.index || "1"}`;
+        a.href = mediaUrl(item.file, true, name);
+        a.download = "";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        await new Promise((r) => setTimeout(r, 450));
+      }
+      toast(t("saved"));
+    });
+  }
 
   $("profileForm").addEventListener("submit", (e) => {
     e.preventDefault();
