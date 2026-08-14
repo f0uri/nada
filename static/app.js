@@ -992,7 +992,10 @@
   });
 
   document.querySelectorAll(".tab").forEach((btn) => {
-    btn.addEventListener("click", () => showView(btn.dataset.tab));
+    btn.addEventListener("click", () => {
+      showView(btn.dataset.tab);
+      btn.blur();
+    });
   });
 
   const storiesRow = $("storiesRow");

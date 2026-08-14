@@ -91,9 +91,31 @@ html[data-theme="dark"] {
 
 [hidden] { display: none !important; }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
 html, body { height: 100%; }
-html { -webkit-text-size-adjust: 100%; }
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+::selection {
+  background: rgba(181, 106, 78, 0.28);
+  color: var(--ink);
+}
+button, a, input, textarea, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+button:focus, button:focus-visible,
+a:focus, a:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
 body {
   min-height: 100%;
   color: var(--ink);
@@ -551,9 +573,25 @@ html[dir="rtl"] .primary svg { transform: scaleX(-1); }
   font-size: 12.5px;
   margin-top: 4px;
 }
-.credit-card h3 {
+.credit-card h3,
+.credit-name {
   font-family: "Nada EN", sans-serif;
   letter-spacing: 0.02em;
+}
+.credit-name {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 auto 6px;
+}
+.ig-verified {
+  width: 1.08em;
+  height: 1.08em;
+  flex: none;
+  display: block;
+  translate: 0 0.05em;
+  filter: drop-shadow(0 0.5px 0 rgba(160, 120, 0, 0.28));
 }
 
 .posts-block {

@@ -1,9 +1,14 @@
 <resources>
     <style name="Theme.Nada" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">@color/sand</item>
+        <item name="colorPrimaryDark">@color/sand</item>
+        <item name="colorAccent">@color/accent</item>
         <item name="android:statusBarColor">@color/sand</item>
         <item name="android:navigationBarColor">@color/sand</item>
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowBackground">@color/sand</item>
+        <item name="android:colorControlHighlight">@color/highlight</item>
+        <item name="android:colorEdgeEffect">@color/sand</item>
     </style>
 
     <style name="Theme.Nada.Ghost" parent="@android:style/Theme.Translucent.NoTitleBar">
