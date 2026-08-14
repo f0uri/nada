@@ -8,35 +8,51 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
 import android.os.IBinder
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.widget.TextView
 import androidx.core.app.NotificationCompat
 
 class BubbleService : Service() {
     private var windowManager: WindowManager? = null
-    private var bubble: TextView? = null
+    private var bubble: View? = null
     private var params: WindowManager.LayoutParams? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(NOTIF_ID, buildNotification())
-        showBubble()
+        startForeground(NOTIF_ID, buildNotification(Prefs.bubbleVisible(this)))
+        if (Prefs.bubbleVisible(this)) showBubble()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            Prefs.setBubble(this, false)
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                Prefs.setBubble(this, false)
+                Prefs.setBubbleVisible(this, true)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_SHOW -> {
+                Prefs.setBubble(this, true)
+                Prefs.setBubbleVisible(this, true)
+                showBubble()
+                refreshNotification(true)
+                return START_STICKY
+            }
+            ACTION_HIDE -> {
+                Prefs.setBubbleVisible(this, false)
+                removeBubble()
+                refreshNotification(false)
+                return START_STICKY
+            }
         }
+        if (Prefs.bubbleVisible(this)) showBubble() else removeBubble()
+        refreshNotification(Prefs.bubbleVisible(this))
         return START_STICKY
     }
 
@@ -49,21 +65,8 @@ class BubbleService : Service() {
         if (bubble != null) return
         val wm = getSystemService(WINDOW_SERVICE) as WindowManager
         windowManager = wm
-        val size = dp(56)
-        val view = TextView(this).apply {
-            text = "IG"
-            setTextColor(0xFFE8C37A.toInt())
-            textSize = 15f
-            gravity = Gravity.CENTER
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(0xF21C1C1C.toInt())
-                setStroke(dp(1), 0x66E8C37A.toInt())
-            }
-            elevation = dp(8).toFloat()
-            contentDescription = getString(R.string.bubble_label)
-        }
+        val size = dp(58)
+        val view = GlassBubbleView(this)
         val layout = WindowManager.LayoutParams(
             size,
             size,
@@ -86,8 +89,9 @@ class BubbleService : Service() {
         val hideLater = Runnable {
             if (dragged || longPressed) return@Runnable
             longPressed = true
-            Prefs.setBubble(this, false)
-            stopSelf()
+            Prefs.setBubbleVisible(this, false)
+            removeBubble()
+            refreshNotification(false)
         }
         view.setOnTouchListener { _, event ->
             when (event.actionMasked) {
@@ -155,12 +159,16 @@ class BubbleService : Service() {
             .onFailure { QuickSaveService.notifyNeedLink(this) }
     }
 
-    private fun buildNotification(): Notification {
+    private fun refreshNotification(visible: Boolean) {
+        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(visible))
+    }
+
+    private fun buildNotification(visible: Boolean): Notification {
         val manager = getSystemService(NotificationManager::class.java)
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.bubble_channel),
-            NotificationManager.IMPORTANCE_MIN,
+            NotificationManager.IMPORTANCE_LOW,
         ).apply {
             setShowBadge(false)
             description = getString(R.string.bubble_channel)
@@ -172,21 +180,39 @@ class BubbleService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val show = PendingIntent.getService(
+            this,
+            5,
+            Intent(this, BubbleService::class.java).setAction(ACTION_SHOW),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val hide = PendingIntent.getService(
+            this,
+            6,
+            Intent(this, BubbleService::class.java).setAction(ACTION_HIDE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val stop = PendingIntent.getService(
             this,
             2,
             Intent(this, BubbleService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_menu_share)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle(getString(R.string.bubble_label))
-            .setContentText(getString(R.string.bubble_hint))
-            .setContentIntent(open)
-            .addAction(0, getString(R.string.bubble_off), stop)
+            .setContentText(getString(if (visible) R.string.bubble_hint else R.string.bubble_hidden))
+            .setContentIntent(if (visible) open else show)
             .setOngoing(true)
             .setSilent(true)
-            .build()
+            .setOnlyAlertOnce(true)
+        if (visible) {
+            builder.addAction(0, getString(R.string.bubble_hide), hide)
+        } else {
+            builder.addAction(0, getString(R.string.bubble_show), show)
+        }
+        builder.addAction(0, getString(R.string.bubble_off), stop)
+        return builder.build()
     }
 
     private fun dp(value: Int): Int {
@@ -201,13 +227,18 @@ class BubbleService : Service() {
         private const val CHANNEL_ID = "nada_bubble"
         private const val NOTIF_ID = 26
         private const val ACTION_STOP = "com.nada.app.STOP_BUBBLE"
+        private const val ACTION_SHOW = "com.nada.app.SHOW_BUBBLE"
+        private const val ACTION_HIDE = "com.nada.app.HIDE_BUBBLE"
 
         fun start(context: Context) {
-            val intent = Intent(context, BubbleService::class.java)
+            Prefs.setBubble(context, true)
+            Prefs.setBubbleVisible(context, true)
+            val intent = Intent(context, BubbleService::class.java).setAction(ACTION_SHOW)
             context.startForegroundService(intent)
         }
 
         fun stop(context: Context) {
+            Prefs.setBubble(context, false)
             context.stopService(Intent(context, BubbleService::class.java))
         }
     }
@@ -216,6 +247,7 @@ class BubbleService : Service() {
 object Prefs {
     private const val FILE = "nada_prefs"
     private const val BUBBLE = "bubble_on"
+    private const val VISIBLE = "bubble_visible"
 
     fun bubbleOn(context: Context): Boolean {
         return context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(BUBBLE, false)
@@ -223,5 +255,13 @@ object Prefs {
 
     fun setBubble(context: Context, on: Boolean) {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(BUBBLE, on).apply()
+    }
+
+    fun bubbleVisible(context: Context): Boolean {
+        return context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(VISIBLE, true)
+    }
+
+    fun setBubbleVisible(context: Context, on: Boolean) {
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(VISIBLE, on).apply()
     }
 }

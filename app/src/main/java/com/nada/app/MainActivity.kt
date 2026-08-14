@@ -75,9 +75,8 @@ class MainActivity : AppCompatActivity() {
                 val host = target.host.orEmpty()
                 if (host == "127.0.0.1" || host == "localhost") return false
                 val href = target.toString()
-                if (INSTAGRAM_URL.containsMatchIn(href)) {
-                    queueUrl(href)
-                }
+                val found = IgLinks.fromText(href)
+                if (found.isNotBlank()) queueUrl(found)
                 return true
             }
         }
@@ -109,7 +108,7 @@ class MainActivity : AppCompatActivity() {
         setupAuthWeb()
         findViewById<Button>(R.id.authClose).setOnClickListener { closeStoryLogin() }
         web.loadUrl(NadaServer.BASE)
-        queueUrl(extractInstagramUrl(intent))
+        acceptIncoming(intent)
         restoreBubble()
 
         onBackPressedDispatcher.addCallback(
@@ -276,14 +275,28 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        queueUrl(extractInstagramUrl(intent))
+        acceptIncoming(intent)
+    }
+
+    private fun acceptIncoming(intent: Intent?) {
+        if (intent == null) return
+        val url = IgLinks.fromIntent(intent)
+        if (url.isNotBlank()) {
+            queueUrl(url)
+            runCatching { QuickSaveService.start(this, url) }
+            return
+        }
+        val stream = IgLinks.streamFrom(intent) ?: return
+        runCatching { QuickSaveService.startStream(this, stream) }
+        Toast.makeText(this, getString(R.string.save_working), Toast.LENGTH_SHORT).show()
     }
 
     private fun offerClipboard() {
         if (!pageReady || !::web.isInitialized) return
         val clip = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val text = runCatching { clip.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString() }.getOrNull()
-        val url = INSTAGRAM_URL.find(text.orEmpty())?.value ?: return
+        val url = IgLinks.fromText(text.orEmpty())
+        if (url.isBlank()) return
         web.evaluateJavascript("window.nadaOfferClip && window.nadaOfferClip(${JSONObject.quote(url)})", null)
     }
 
@@ -310,20 +323,4 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    companion object {
-        private val INSTAGRAM_URL = Regex(
-            "https?://(?:www\\\\.)?(?:instagram\\\\.com|instagr\\\\.am)/\\\\S+",
-            RegexOption.IGNORE_CASE,
-        )
-
-        fun extractInstagramUrl(intent: Intent?): String? {
-            if (intent == null) return null
-            val blob = listOfNotNull(
-                intent.getStringExtra(Intent.EXTRA_TEXT),
-                intent.getStringExtra(Intent.EXTRA_SUBJECT),
-                intent.dataString,
-            ).joinToString(" ")
-            return INSTAGRAM_URL.find(blob)?.value?.trimEnd(')', ']', '"', '\'', '>', ',', '،')
-        }
-    }
 }

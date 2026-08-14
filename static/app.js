@@ -57,7 +57,7 @@
       tabLib: "المكتبة",
       tabAbout: "حول",
       bubbleTitle: "زر عائم",
-      bubbleBody: "يبقى فوق إنستغرام. انسخ الرابط ثم اضغط الزر ليُنزَّل في الخلفية ويظهر في الإشعارات. اضغط مطولاً لإخفائه. لا يقرأ الشاشة.",
+      bubbleBody: "يبقى فوق إنستغرام بزر تنزيل زجاجي. اضغطه للتنزيل، أو شارك الريل إلى IG SAVE. اضغط مطولاً لإخفائه ثم أعد إظهاره من الإشعار. لا يقرأ الشاشة.",
       bubbleOn: "تفعيل الزر العائم",
       bubbleOff: "إيقاف الزر العائم",
       loading: "نبحث عن المنشور…",
@@ -136,7 +136,7 @@
       tabLib: "Library",
       tabAbout: "About",
       bubbleTitle: "Floating button",
-      bubbleBody: "Stays over Instagram. Copy the link, then tap the bubble to download in the background. A notification appears. Long-press to hide. It does not read the screen.",
+      bubbleBody: "A glass download button over Instagram. Tap to save, or share the Reel to IG SAVE. Long-press to hide, then show it again from the notification. It does not read the screen.",
       bubbleOn: "Enable floating button",
       bubbleOff: "Disable floating button",
       loading: "Looking for the post…",
@@ -234,7 +234,15 @@
   }
 
   function extractIgUrl(text) {
-    const m = String(text || "").match(/https?:\/\/(?:www\.)?(?:instagram\.com|instagr\.am)\/[^\s<>"']+/i);
+    const src = String(text || "");
+    const li = src.match(/https?:\/\/(?:www\.)?l\.instagram\.com\/[^\s<>"']+/i);
+    if (li) {
+      try {
+        const dest = new URL(li[0]).searchParams.get("u");
+        if (dest) return extractIgUrl(dest);
+      } catch (_) {}
+    }
+    const m = src.match(/https?:\/\/(?:www\.)?(?:instagram\.com|instagr\.am)\/[^\s<>"']+/i);
     if (!m) return "";
     const raw = m[0].replace(/[),.\]>]+$/, "");
     try {

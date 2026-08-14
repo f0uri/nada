@@ -73,14 +73,43 @@ class InstagramClient {
     }
 
     fun resolve(rawUrl: String): JSONObject {
-        parseStory(rawUrl)?.let { return resolveStory(it) }
-        val shortcode = parseShortcode(rawUrl)
+        val url = expandIfNeeded(rawUrl)
+        parseStory(url)?.let { return resolveStory(it) }
+        val shortcode = parseShortcode(url)
         val item = webInfo(shortcode)
         val post = packPost(item, shortcode)
         if (post.getJSONArray("media").length() == 0) {
             throw ApiException(404, "empty")
         }
         return post
+    }
+
+    private fun expandIfNeeded(raw: String): String {
+        val start = IgLinks.fromText(raw).ifBlank { raw.trim() }
+        if (!IgLinks.needsExpand(start)) return start
+        return runCatching {
+            val request = Request.Builder()
+                .url(start)
+                .header("User-Agent", UA)
+                .header("Accept-Language", "ar,en-US;q=0.8,en;q=0.6")
+                .header("Accept", "text/html,application/xhtml+xml")
+                .build()
+            client.newCall(request).execute().use { response ->
+                val finalUrl = IgLinks.fromText(response.request.url.toString())
+                if (looksLikePost(finalUrl)) return@use finalUrl
+                val html = response.body?.string().orEmpty()
+                val og = Regex("""property="og:url" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
+                val fromOg = IgLinks.fromText(og)
+                if (looksLikePost(fromOg)) return@use fromOg
+                val fromHtml = IgLinks.fromText(html)
+                if (looksLikePost(fromHtml)) return@use fromHtml
+                finalUrl.ifBlank { start }
+            }
+        }.getOrDefault(start)
+    }
+
+    private fun looksLikePost(url: String): Boolean {
+        return URL_RE.containsMatchIn(url) || STORY_RE.containsMatchIn(url)
     }
 
     fun prepareSave(rawUrl: String): SaveBatch {
@@ -1070,7 +1099,7 @@ class InstagramClient {
         )
         private val RESERVED = setOf(
             "p", "reel", "reels", "tv", "stories", "explore", "accounts",
-            "about", "legal", "privacy", "terms", "lite",
+            "about", "legal", "privacy", "terms", "lite", "share", "s",
         )
         private val ALLOWED = listOf(
             "cdninstagram.com",

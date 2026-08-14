@@ -81,7 +81,7 @@ USER_URL_RE = re.compile(
 )
 RESERVED = {
     "p", "reel", "reels", "tv", "stories", "explore", "accounts", "about",
-    "legal", "developer", "directory", "privacy", "terms", "lite",
+    "legal", "developer", "directory", "privacy", "terms", "lite", "share", "s",
 }
 
 
@@ -1012,13 +1012,111 @@ def pack_post(item: dict[str, Any], shortcode: str) -> dict[str, Any]:
     }
 
 
+
+def parse_story(raw: str) -> dict[str, str] | None:
+    match = STORY_RE.search((raw or "").strip())
+    if not match:
+        return None
+    highlight, user_with_id, media_id, user_only = match.groups()
+    if highlight:
+        return {"kind": "highlight", "username": "", "id": highlight}
+    if user_with_id and media_id:
+        return {"kind": "story", "username": user_with_id, "id": media_id}
+    if user_only and user_only.lower() not in RESERVED:
+        return {"kind": "user", "username": user_only, "id": ""}
+    return None
+
+
+def media_id_to_shortcode(media_id: str) -> str:
+    digits = "".join(ch for ch in (media_id or "") if ch.isdigit())
+    if not digits:
+        return ""
+    value = int(digits)
+    if value <= 0:
+        return ""
+    out = []
+    while value > 0:
+        value, rem = divmod(value, 64)
+        out.append(ALPHABET[rem])
+    return "".join(reversed(out))
+
+
+def tidy_ig_url(raw: str) -> str:
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    found = re.search(
+        r"https?://(?:www\.)?(?:l\.)?(?:instagram\.com|instagr\.am)/[^\s<>\"'\]\)]+",
+        text,
+        re.I,
+    )
+    if not found:
+        return text
+    url = found.group(0).rstrip(")].,،…>\"'")
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        if "l.instagram.com" in host:
+            from urllib.parse import parse_qs, unquote
+            dest = (parse_qs(parsed.query).get("u") or [""])[0]
+            if dest:
+                return tidy_ig_url(unquote(dest))
+        path = re.sub(r"/{2,}", "/", parsed.path or "").rstrip("/")
+        if not path or path == "/":
+            return ""
+        return f"https://www.instagram.com{path}/"
+    except Exception:
+        return url.split("?", 1)[0].split("#", 1)[0]
+
+
+def needs_expand(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    path = (parsed.path or "").lower()
+    return "l.instagram.com" in host or "/share" in path or path.startswith("/s/")
+
+
+def looks_like_post(url: str) -> bool:
+    return bool(URL_RE.search(url) or STORY_RE.search(url))
+
+
+async def expand_share(raw: str) -> str:
+    start = tidy_ig_url(raw) or (raw or "").strip()
+    if not needs_expand(start):
+        return start
+    try:
+        r = await ig.client.get(
+            start,
+            headers={"Accept": "text/html,application/xhtml+xml"},
+            follow_redirects=True,
+        )
+        final = tidy_ig_url(str(r.url))
+        if looks_like_post(final):
+            return final
+        html = r.text or ""
+        og = re.search(r'property="og:url" content="([^"]+)"', html)
+        if og:
+            from_og = tidy_ig_url(og.group(1))
+            if looks_like_post(from_og):
+                return from_og
+        found = URL_RE.search(html)
+        if found:
+            from_html = tidy_ig_url(found.group(0))
+            if looks_like_post(from_html):
+                return from_html
+        return final or start
+    except Exception:
+        return start
+
+
 @app.post("/api/resolve")
 async def resolve(payload: ResolveIn, request: Request):
     hit_rate(client_ip(request))
     try:
-        if parse_story(payload.url):
-            return await ig.resolve_story(payload.url)
-        shortcode = parse_shortcode(payload.url)
+        url = await expand_share(payload.url)
+        if parse_story(url):
+            return await ig.resolve_story(url)
+        shortcode = parse_shortcode(url)
         item = await ig.web_info(shortcode)
     except HTTPException:
         raise
