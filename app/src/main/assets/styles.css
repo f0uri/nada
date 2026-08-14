@@ -59,6 +59,12 @@
   --stage: #e7d9c8;
   --phone: linear-gradient(180deg, #f6efe6 0%, #efe4d6 48%, #e7d8c8 100%);
   --theme: #efe6da;
+  --field: rgba(255, 255, 255, 0.62);
+  --chip: rgba(255, 255, 255, 0.48);
+  --stat: rgba(255, 255, 255, 0.42);
+  --ghost-bg: rgba(255, 255, 255, 0.72);
+  --secondary-bg: rgba(255, 255, 255, 0.52);
+  --placeholder: #9a8f84;
 }
 html[data-theme="dark"] {
   --sand: #1c1814;
@@ -75,6 +81,12 @@ html[data-theme="dark"] {
   --stage: #14110e;
   --phone: linear-gradient(180deg, #221d18 0%, #1a1612 55%, #14110e 100%);
   --theme: #1c1814;
+  --field: rgba(255, 255, 255, 0.08);
+  --chip: rgba(255, 255, 255, 0.08);
+  --stat: rgba(255, 255, 255, 0.07);
+  --ghost-bg: rgba(255, 255, 255, 0.10);
+  --secondary-bg: rgba(255, 255, 255, 0.10);
+  --placeholder: #8a8076;
 }
 
 [hidden] { display: none !important; }
@@ -273,7 +285,7 @@ h1 {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255,255,255,0.55);
+  background: var(--field);
   border-radius: 18px;
   padding: 4px 4px 4px 10px;
   box-shadow: inset 0 1px 2px rgba(90,60,40,0.06);
@@ -291,7 +303,8 @@ html[dir="ltr"] .field { padding: 4px 10px 4px 4px; }
   min-width: 0;
   padding: 10px 0;
 }
-.field input::placeholder { color: #b2a89d; }
+.field input { color: var(--ink); -webkit-text-fill-color: var(--ink); }
+.field input::placeholder { color: var(--placeholder); -webkit-text-fill-color: var(--placeholder); }
 
 .ghost, .primary, .secondary, .circle, .chip, .tab {
   font-family: inherit;
@@ -299,7 +312,7 @@ html[dir="ltr"] .field { padding: 4px 10px 4px 4px; }
   border: 0;
 }
 .ghost {
-  background: rgba(255,255,255,0.7);
+  background: var(--ghost-bg);
   color: var(--accent-d);
   border-radius: 14px;
   padding: 8px 12px;
@@ -330,7 +343,7 @@ html[dir="rtl"] .primary svg { transform: scaleX(-1); }
   flex: 1;
   border-radius: 14px;
   padding: 12px 10px;
-  background: rgba(255,255,255,0.5);
+  background: var(--secondary-bg);
   color: var(--ink);
   font-weight: 600;
   font-size: 13.5px;
@@ -344,7 +357,7 @@ html[dir="rtl"] .primary svg { transform: scaleX(-1); }
   margin: 14px 4px 8px;
 }
 .chip {
-  background: rgba(255,255,255,0.48);
+  background: var(--chip);
   color: var(--ink);
   border-radius: 999px;
   padding: 7px 12px;
@@ -405,7 +418,7 @@ html[dir="rtl"] .primary svg { transform: scaleX(-1); }
   margin: 0 0 14px;
 }
 .profile-stats div {
-  background: rgba(255,255,255,0.42);
+  background: var(--stat);
   border-radius: 16px;
   padding: 10px 6px 8px;
   box-shadow: inset 0 0 0 1px var(--line);
@@ -537,7 +550,7 @@ html[dir="rtl"] .primary svg { transform: scaleX(-1); }
 }
 .circle {
   width: 36px; height: 36px; border-radius: 50%;
-  background: rgba(255,255,255,0.55);
+  background: var(--ghost-bg);
   color: var(--ink);
   display: grid; place-items: center;
   box-shadow: inset 0 0 0 1px var(--line);
@@ -632,7 +645,7 @@ html[dir="ltr"] .circle svg { transform: scaleX(-1); }
 .lib-card {
   border: 0; padding: 0; text-align: start;
   border-radius: 20px; overflow: hidden;
-  background: rgba(255,255,255,0.4);
+  background: var(--stat);
   box-shadow: inset 0 0 0 1px var(--line);
   cursor: pointer;
   color: inherit;
@@ -668,7 +681,7 @@ html[dir="ltr"] .circle svg { transform: scaleX(-1); }
 .tab svg { width: 22px; height: 22px; }
 .tab.on {
   color: var(--accent-d);
-  background: rgba(255,255,255,0.62);
+  background: var(--chip);
 }
 .home-ind {
   position: absolute;
