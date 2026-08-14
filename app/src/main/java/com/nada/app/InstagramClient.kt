@@ -44,14 +44,18 @@ class InstagramClient {
             "https://www.instagram.com/api/v1/users/web_profile_info/?username=$username",
             "https://i.instagram.com/api/v1/users/web_profile_info/?username=$username",
         )
+        var user: JSONObject? = null
         for (url in sources) {
             val data = igGet(url, "https://www.instagram.com/$username/", mobile = url.contains("i.instagram.com"))
-            val user = data?.optJSONObject("data")?.optJSONObject("user")
-            if (user != null && user.optString("username").isNotBlank()) {
-                    return attachPosts(packProfile(user), user)
+            val found = data?.optJSONObject("data")?.optJSONObject("user")
+            if (found != null && found.optString("username").isNotBlank()) {
+                user = found
+                break
             }
         }
-        return profileFromHtml(username)
+        val resolved = user ?: profileUserFromHtml(username)
+        enrichUser(resolved)
+        return attachPosts(packProfile(resolved), resolved)
     }
 
     fun resolve(rawUrl: String): JSONObject {
@@ -236,8 +240,11 @@ class InstagramClient {
     }
 
     private fun packProfile(user: JSONObject): JSONObject {
-        val avatar = user.optString("profile_pic_url_hd").ifBlank { user.optString("profile_pic_url") }
-            .replace("\\u0026", "&")
+        var avatar = user.optString("profile_pic_url_hd").ifBlank { user.optString("profile_pic_url") }
+        if (avatar.isBlank()) {
+            avatar = user.optJSONObject("hd_profile_pic_url_info")?.optString("url").orEmpty()
+        }
+        avatar = avatar.replace("\\u0026", "&")
         val followers = user.optJSONObject("edge_followed_by")?.opt("count") ?: user.opt("follower_count")
         val following = user.optJSONObject("edge_follow")?.opt("count") ?: user.opt("following_count")
         val posts = user.optJSONObject("edge_owner_to_timeline_media")?.opt("count") ?: user.opt("media_count")
@@ -245,7 +252,7 @@ class InstagramClient {
             .put("ok", true)
             .put("username", user.optString("username"))
             .put("name", user.optString("full_name"))
-            .put("bio", extractUserBio(user))
+            .put("bio", composeProfileBio(user).ifBlank { extractUserBio(user) })
             .put("private", user.optBoolean("is_private"))
             .put("followers", followers)
             .put("following", following)
@@ -357,7 +364,7 @@ class InstagramClient {
             .put("preview", if (preview.isNotBlank() && hostOk(preview)) signUrl(preview) else JSONObject.NULL)
     }
 
-    private fun profileFromHtml(username: String): JSONObject {
+    private fun profileUserFromHtml(username: String): JSONObject {
         val request = Request.Builder()
             .url("https://www.instagram.com/$username/")
             .header("User-Agent", UA)
@@ -367,45 +374,167 @@ class InstagramClient {
         client.newCall(request).execute().use { response ->
             if (response.code == 429) throw ApiException(429, "rate")
             if (!response.isSuccessful) throw ApiException(404, "missing")
-            val html = decodeEntities(response.body?.string().orEmpty())
-            if (isLoginWall(html)) throw ApiException(404, "blocked")
+            val rawHtml = response.body?.string().orEmpty()
+            val html = decodeEntities(rawHtml)
+            if (isLoginWall(html) || isLoginWall(rawHtml)) throw ApiException(404, "blocked")
             val pic = Regex("""property="og:image" content="([^"]+)"""").find(html)?.groupValues?.get(1)
                 ?.replace("&amp;", "&").orEmpty()
             val title = Regex("""property="og:title" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
             val desc = Regex("""property="og:description" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
-            val hd = Regex(""""profile_pic_url_hd":"([^"]+)"""").find(html)?.groupValues?.get(1)
-                ?.replace("\\u0026", "&")?.replace("\\/", "/").orEmpty()
-            val bioRaw = extractHtmlBio(html)
-            val userId = Regex(""""profile_id":"(\d+)"""").find(html)?.groupValues?.get(1)
-                ?: Regex(""""profilePage_(\d+)"""").find(html)?.groupValues?.get(1)
-                ?: Regex(""""user_id"\s*:\s*"(\d+)"""").find(html)?.groupValues?.get(1)
-                ?: Regex(""""owner":\{"id":"(\d+)"""").find(html)?.groupValues?.get(1)
-                .orEmpty()
+            val hd = Regex(""""profile_pic_url_hd":"((?:\\.|[^"\\])*)"""").find(rawHtml)?.groupValues?.get(1)
+                ?.let { unescapeJson(it) }.orEmpty()
+            val userId = extractHtmlUserId(rawHtml).ifBlank { extractHtmlUserId(html) }
             if (pic.isBlank() && hd.isBlank() && title.isBlank()) throw ApiException(404, "missing")
             val name = cleanProfileName(title, username)
             val stats = parseOgStats(desc)
-            val bio = bioRaw.ifBlank { cleanOgBio(desc) }
-            val user = JSONObject()
+            val bio = extractHtmlBio(rawHtml).ifBlank { extractHtmlBio(html) }.ifBlank { cleanOgBio(desc) }
+            return JSONObject()
                 .put("username", username)
                 .put("full_name", name)
                 .put("biography", bio)
                 .put("profile_pic_url_hd", hd.ifBlank { pic })
-                .put("follower_count", stats[0])
-                .put("following_count", stats[1])
-                .put("media_count", stats[2])
+                .put("follower_count", stats[0] ?: JSONObject.NULL)
+                .put("following_count", stats[1] ?: JSONObject.NULL)
+                .put("media_count", stats[2] ?: JSONObject.NULL)
                 .put("id", userId)
                 .put("pk", userId)
-            return attachPosts(packProfile(user), user)
         }
     }
 
+    private fun enrichUser(user: JSONObject) {
+        val userId = user.optString("id").ifBlank { user.optString("pk") }
+        if (userId.isNotBlank() && extractUserBio(user).isBlank()) {
+            graphqlProfile(userId)?.let { mergeProfileUser(user, it) }
+        }
+        user.put("biography", composeProfileBio(user))
+    }
+
+    private fun graphqlProfile(userId: String): JSONObject? {
+        val token = runCatching { ensureCsrf() }.getOrNull() ?: return null
+        val variables = JSONObject()
+            .put("id", userId)
+            .put("render_surface", "PROFILE")
+            .put("__relay_internal__pv__PolarisCannesGuardianExperienceEnabledrelayprovider", true)
+            .put("__relay_internal__pv__PolarisCASB976ProfileEnabledrelayprovider", false)
+            .put("__relay_internal__pv__PolarisRepostsConsumptionEnabledrelayprovider", false)
+            .put("__relay_internal__pv__PolarisWebSchoolsEnabledrelayprovider", false)
+            .put("enable_integrity_filters", true)
+            .toString()
+        val profileDocIds = listOf("27937681195819736", "26672929172408668")
+        for (docId in profileDocIds) {
+            val body = FormBody.Builder()
+                .add("variables", variables)
+                .add("doc_id", docId)
+                .build()
+            val request = Request.Builder()
+                .url("https://www.instagram.com/graphql/query")
+                .header("User-Agent", UA)
+                .header("x-ig-app-id", APP_ID)
+                .header("x-asbd-id", "359341")
+                .header("x-csrftoken", token)
+                .header("x-ig-www-claim", "0")
+                .header("x-requested-with", "XMLHttpRequest")
+                .header("origin", "https://www.instagram.com")
+                .header("referer", "https://www.instagram.com/")
+                .post(body)
+                .build()
+            val user = client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                runCatching {
+                    JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
+                        .optJSONObject("data")
+                        ?.optJSONObject("user")
+                }.getOrNull()
+            }
+            if (user != null && (user.optString("username").isNotBlank() || user.optString("pk").isNotBlank() || user.optString("id").isNotBlank())) {
+                return user
+            }
+        }
+        return null
+    }
+
+    private fun mergeProfileUser(user: JSONObject, extra: JSONObject) {
+        if (extractUserBio(user).isBlank()) {
+            val bio = extractUserBio(extra)
+            if (bio.isNotBlank()) user.put("biography", bio)
+            extra.optJSONObject("biography_with_entities")?.let { user.put("biography_with_entities", it) }
+        }
+        if (user.optString("full_name").isBlank() && extra.optString("full_name").isNotBlank()) {
+            user.put("full_name", extra.optString("full_name"))
+        }
+        if (user.optString("username").isBlank() && extra.optString("username").isNotBlank()) {
+            user.put("username", extra.optString("username"))
+        }
+        val hd = extra.optJSONObject("hd_profile_pic_url_info")?.optString("url").orEmpty()
+        if (user.optString("profile_pic_url_hd").isBlank() && hd.isNotBlank()) {
+            user.put("profile_pic_url_hd", hd)
+        }
+        if (user.optString("profile_pic_url").isBlank() && extra.optString("profile_pic_url").isNotBlank()) {
+            user.put("profile_pic_url", extra.optString("profile_pic_url"))
+        }
+        if (!user.has("follower_count") || user.isNull("follower_count")) {
+            extra.opt("follower_count")?.let { user.put("follower_count", it) }
+        }
+        if (!user.has("following_count") || user.isNull("following_count")) {
+            extra.opt("following_count")?.let { user.put("following_count", it) }
+        }
+        if (!user.has("media_count") || user.isNull("media_count")) {
+            extra.opt("media_count")?.let { user.put("media_count", it) }
+        }
+        extra.optJSONArray("bio_links")?.let { user.put("bio_links", it) }
+        if (user.optString("external_url").isBlank() && extra.optString("external_url").isNotBlank()) {
+            user.put("external_url", extra.optString("external_url"))
+        }
+        if (user.optString("id").isBlank() && extra.optString("id").isNotBlank()) {
+            user.put("id", extra.optString("id"))
+        }
+        if (user.optString("pk").isBlank() && extra.optString("pk").isNotBlank()) {
+            user.put("pk", extra.optString("pk"))
+        }
+    }
 
     private fun extractUserBio(user: JSONObject): String {
-        val direct = unescapeJson(user.optString("biography"))
-        if (direct.isNotBlank()) return direct
+        val directVal = user.opt("biography")
+        val direct = when (directVal) {
+            is String -> unescapeJson(directVal)
+            is JSONObject -> unescapeJson(
+                directVal.optString("text").ifBlank {
+                    directVal.optString("sensitive_string_value").ifBlank { directVal.optString("raw_text") }
+                }
+            )
+            else -> ""
+        }
+        if (direct.isNotBlank() && !isGenericBio(direct)) return direct
         val nested = unescapeJson(user.optJSONObject("biography_with_entities")?.optString("raw_text").orEmpty())
-        if (nested.isNotBlank()) return nested
+        if (nested.isNotBlank() && !isGenericBio(nested)) return nested
         return ""
+    }
+
+    private fun collectBioLinks(user: JSONObject): List<String> {
+        val out = mutableListOf<String>()
+        val seen = mutableSetOf<String>()
+        val ext = user.optString("external_url").trim()
+        if (ext.isNotBlank()) {
+            seen += ext
+            out += ext
+        }
+        val links = user.optJSONArray("bio_links") ?: JSONArray()
+        for (i in 0 until links.length()) {
+            val link = links.optJSONObject(i) ?: continue
+            val url = link.optString("url").trim()
+            val title = link.optString("title").trim()
+            if (url.isBlank() || url in seen) continue
+            seen += url
+            out += if (title.isNotBlank() && !url.contains(title, ignoreCase = true)) "$title\n$url" else url
+        }
+        return out
+    }
+
+    private fun composeProfileBio(user: JSONObject): String {
+        val bio = extractUserBio(user)
+        val extras = collectBioLinks(user).filter { it.isNotBlank() && !bio.contains(it) }
+        if (extras.isEmpty()) return bio
+        return if (bio.isBlank()) extras.joinToString("\n") else bio + "\n" + extras.joinToString("\n")
     }
 
     private fun isLoginWall(html: String): Boolean {
@@ -416,17 +545,67 @@ class InstagramClient {
     }
 
     private fun extractHtmlBio(html: String): String {
-        val fromJson = Regex(""""biography":"((?:\\.|[^"\\])*)"""").find(html)?.groupValues?.get(1).orEmpty()
-        if (fromJson.isNotBlank()) return unescapeJson(fromJson)
-        val meta = Regex("""name="description" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
-        return cleanOgBio(decodeEntities(meta))
+        val patterns = listOf(
+            Regex(""""biography":"((?:\\.|[^"\\])*)""""),
+            Regex(""""raw_text":"((?:\\.|[^"\\])*)""""),
+        )
+        for (pattern in patterns) {
+            for (match in pattern.findAll(html)) {
+                val bio = unescapeJson(match.groupValues[1])
+                if (bio.isNotBlank() && !isGenericBio(bio)) return bio
+            }
+        }
+        val meta = Regex("""name="description" content="([^"]*)"""").find(html)?.groupValues?.get(1).orEmpty()
+        val fromMeta = cleanOgBio(meta)
+        if (fromMeta.isNotBlank()) return fromMeta
+        val og = Regex("""property="og:description" content="([^"]*)"""").find(html)?.groupValues?.get(1).orEmpty()
+        return cleanOgBio(og)
+    }
+
+    private fun extractHtmlUserId(html: String): String {
+        val patterns = listOf(
+            Regex(""""profile_id":"(\d+)""""),
+            Regex(""""logging_page_id":"profilePage_(\d+)""""),
+            Regex("""profilePage_(\d+)"""),
+            Regex(""""user_id"\s*:\s*"(\d+)""""),
+            Regex(""""pk":"(\d{5,})""""),
+            Regex(""""id":"(\d{5,})","username""""),
+            Regex(""""username":"[^"]{1,30}","id":"(\d{5,})""""),
+            Regex("""instagram://user\?username=[^&"]+&user_id=(\d+)"""),
+        )
+        for (pattern in patterns) {
+            val match = pattern.find(html) ?: continue
+            if (match.groupValues[1].isNotBlank()) return match.groupValues[1]
+        }
+        return ""
+    }
+
+    private fun isGenericBio(text: String): Boolean {
+        val value = text.trim()
+        if (value.isBlank()) return true
+        val low = value.lowercase(Locale.US)
+        return low.startsWith("see instagram photos and videos")
+            || low.startsWith("create an account or log in")
+            || low.contains("create an account or log in to instagram")
     }
 
     private fun cleanOgBio(desc: String): String {
         val text = decodeEntities(desc).trim()
         if (text.isBlank()) return ""
+        val quoted = Regex("""on Instagram:\s*["“](.*)["”]\s*$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(text)?.groupValues?.get(1)?.let { decodeEntities(it).trim() }.orEmpty()
+        if (quoted.isNotBlank()) return if (isGenericBio(quoted)) "" else quoted
+        val tail = Regex("""Posts\s*[-–—]\s*(.+)$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(text)?.groupValues?.get(1)?.trim().orEmpty()
+        if (tail.isNotBlank()) {
+            val inner = Regex("""on Instagram:\s*["“](.*)["”]\s*$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+                .find(tail)?.groupValues?.get(1)?.let { decodeEntities(it).trim() }.orEmpty()
+            if (inner.isNotBlank()) return if (isGenericBio(inner)) "" else inner
+            if (isGenericBio(tail) || Regex(""".+\(@[\w.]+\)\s*$""").matches(tail)) return ""
+            return tail
+        }
         if (Regex("""\d[\d.,]*\s*[KMB]?\s*Followers""", RegexOption.IGNORE_CASE).containsMatchIn(text)) return ""
-        return text.replace(Regex("""\s*\(@[^)]+\)\s*"""), " ").trim()
+        return if (isGenericBio(text)) "" else text
     }
 
     private fun unescapeJson(value: String): String {

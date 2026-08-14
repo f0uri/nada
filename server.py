@@ -25,10 +25,16 @@ SECRET = b"nada-dew-glass-2026"
 TOKEN_TTL = 45 * 60
 DOC_ID = "27128499623469141"
 APP_ID = "936619743392459"
+IG_ANDROID_APP_ID = "567067343352427"
+PROFILE_DOC_IDS = ("27937681195819736", "26672929172408668")
 
 UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) "
     "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1"
+)
+IG_MOBILE_UA = (
+    "Instagram 192.168.2.5.74 Android (31/12; 420dpi; 1080x2130; "
+    "Xiaomi; M2101K6G; alioth; qcom; en_US; 376229147)"
 )
 
 URL_RE = re.compile(
@@ -152,28 +158,34 @@ class InstagramSession:
         return items[0]
 
     async def profile(self, username: str) -> dict[str, Any]:
-        csrf = await self.ensure()
-        headers = {
-            "x-ig-app-id": APP_ID,
-            "x-asbd-id": "359341",
-            "x-csrftoken": csrf,
-            "x-ig-www-claim": "0",
-            "x-requested-with": "XMLHttpRequest",
-            "referer": f"https://www.instagram.com/{username}/",
-        }
-        r = await self.client.get(
-            f"https://www.instagram.com/api/v1/users/web_profile_info/?username={quote(username)}",
-            headers=headers,
+        user = await self.web_profile(username)
+        if not user:
+            user = await self.profile_from_html(username)
+        if not user:
+            raise HTTPException(404, "missing")
+        return await self.enrich_profile(user)
+
+    async def web_profile(self, username: str) -> dict[str, Any] | None:
+        sources = (
+            (
+                f"https://www.instagram.com/api/v1/users/web_profile_info/?username={quote(username)}",
+                False,
+            ),
+            (
+                f"https://i.instagram.com/api/v1/users/web_profile_info/?username={quote(username)}",
+                True,
+            ),
         )
-        if r.status_code == 429:
-            raise HTTPException(429, "rate")
-        if r.status_code == 200:
-            try:
-                user = ((r.json().get("data") or {}).get("user")) or {}
-            except Exception:
-                user = {}
+        for url, mobile in sources:
+            data = await self._ig_get(
+                url, f"https://www.instagram.com/{username}/", mobile=mobile
+            )
+            user = ((data or {}).get("data") or {}).get("user") or {}
             if user.get("username"):
                 return user
+        return None
+
+    async def profile_from_html(self, username: str) -> dict[str, Any]:
         page = await self.client.get(
             f"https://www.instagram.com/{username}/",
             headers={"referer": "https://www.instagram.com/"},
@@ -182,18 +194,14 @@ class InstagramSession:
             raise HTTPException(429, "rate")
         if page.status_code >= 400:
             raise HTTPException(404, "missing")
-        html = decode_entities(page.text)
-        low = html.lower()
-        if "create an account or log in to instagram" in low or (
-            "/accounts/login" in low and "profile_pic_url_hd" not in low
-        ):
+        html = page.text or ""
+        if is_login_wall(html):
             raise HTTPException(404, "blocked")
-        pic = re.search(r'property="og:image" content="([^"]+)"', html)
-        title = re.search(r'property="og:title" content="([^"]+)"', html)
-        desc = re.search(r'property="og:description" content="([^"]+)"', html)
-        bio = re.search(r'"biography":"((?:\\.|[^"\\])*)"', html)
-        hd = re.search(r'"profile_pic_url_hd":"([^"]+)"', html)
-        uid = re.search(r'"profile_id":"(\d+)"', html) or re.search(r'"id":"(\d{5,})"', html)
+        decoded = decode_entities(html)
+        pic = re.search(r'property="og:image" content="([^"]+)"', decoded)
+        title = re.search(r'property="og:title" content="([^"]+)"', decoded)
+        desc = re.search(r'property="og:description" content="([^"]+)"', decoded)
+        hd = re.search(r'"profile_pic_url_hd":"((?:\\.|[^"\\])*)"', html)
         if not pic and not hd and not title:
             raise HTTPException(404, "missing")
         raw_title = decode_entities(title.group(1)) if title else ""
@@ -201,38 +209,88 @@ class InstagramSession:
         name = re.sub(r"\s*\(@?[^)]*\)\s*", "", name)
         name = re.sub(r"Instagram photos and videos", "", name, flags=re.I).strip() or username
         raw_desc = decode_entities(desc.group(1)) if desc else ""
-        followers = parse_og_stat(raw_desc, "Followers")
-        following = parse_og_stat(raw_desc, "Following")
-        media_count = parse_og_stat(raw_desc, "Posts")
-        biography = ""
-        if bio:
-            try:
-                biography = bio.group(1).encode("utf-8").decode("unicode_escape")
-            except Exception:
-                biography = bio.group(1)
+        uid = extract_html_user_id(html) or extract_html_user_id(decoded)
         avatar = ""
         if hd:
-            avatar = hd.group(1).encode("utf-8").decode("unicode_escape")
+            avatar = unescape_ig(hd.group(1))
         elif pic:
             avatar = pic.group(1).replace("&amp;", "&")
         return {
             "username": username,
             "full_name": name,
-            "biography": biography,
+            "biography": extract_html_bio(html) or extract_html_bio(decoded),
             "profile_pic_url_hd": avatar,
-            "follower_count": followers,
-            "following_count": following,
-            "media_count": media_count,
-            "id": uid.group(1) if uid else "",
-            "pk": uid.group(1) if uid else "",
+            "follower_count": parse_og_stat(raw_desc, "Followers"),
+            "following_count": parse_og_stat(raw_desc, "Following"),
+            "media_count": parse_og_stat(raw_desc, "Posts"),
+            "id": uid,
+            "pk": uid,
         }
 
-    async def _ig_get(self, url: str, referer: str) -> dict[str, Any] | None:
+    async def graphql_profile(self, user_id: str) -> dict[str, Any] | None:
         csrf = await self.ensure()
+        variables = json.dumps(
+            {
+                "id": str(user_id),
+                "render_surface": "PROFILE",
+                "__relay_internal__pv__PolarisCannesGuardianExperienceEnabledrelayprovider": True,
+                "__relay_internal__pv__PolarisCASB976ProfileEnabledrelayprovider": False,
+                "__relay_internal__pv__PolarisRepostsConsumptionEnabledrelayprovider": False,
+                "__relay_internal__pv__PolarisWebSchoolsEnabledrelayprovider": False,
+                "enable_integrity_filters": True,
+            },
+            separators=(",", ":"),
+        )
+        headers = {
+            "content-type": "application/x-www-form-urlencoded",
+            "x-ig-app-id": APP_ID,
+            "x-asbd-id": "359341",
+            "x-csrftoken": csrf,
+            "x-ig-www-claim": "0",
+            "x-requested-with": "XMLHttpRequest",
+            "origin": "https://www.instagram.com",
+            "referer": "https://www.instagram.com/",
+        }
+        body_base = f"variables={quote(variables)}&doc_id="
+        for doc_id in PROFILE_DOC_IDS:
+            try:
+                r = await self.client.post(
+                    "https://www.instagram.com/graphql/query",
+                    headers=headers,
+                    content=body_base + doc_id,
+                )
+            except Exception:
+                continue
+            if r.status_code >= 400:
+                continue
+            try:
+                payload = r.json()
+            except Exception:
+                continue
+            user = ((payload.get("data") or {}).get("user")) or {}
+            if user.get("username") or user.get("pk") or user.get("id"):
+                return user
+        return None
+
+    async def enrich_profile(self, user: dict[str, Any]) -> dict[str, Any]:
+        uid = str(user.get("id") or user.get("pk") or "")
+        if uid and not extract_user_bio(user):
+            extra = await self.graphql_profile(uid)
+            if extra:
+                merge_profile_user(user, extra)
+        user["biography"] = compose_profile_bio(user)
+        return user
+
+    async def _ig_get(self, url: str, referer: str, mobile: bool = False) -> dict[str, Any] | None:
+        try:
+            csrf = await self.ensure()
+        except Exception:
+            return None
         r = await self.client.get(
             url,
             headers={
-                "x-ig-app-id": APP_ID,
+                "User-Agent": IG_MOBILE_UA if mobile else UA,
+                "x-ig-app-id": IG_ANDROID_APP_ID if mobile else APP_ID,
                 "x-asbd-id": "359341",
                 "x-csrftoken": csrf,
                 "x-ig-www-claim": "0",
@@ -380,6 +438,199 @@ def decode_entities(value: str) -> str:
     return text
 
 
+GENERIC_BIO_RE = re.compile(
+    r"^(See Instagram photos and videos|Create an account or log in)\b",
+    re.I,
+)
+OG_STATS_RE = re.compile(r"\d[\d.,]*\s*[KMB]?\s*Followers", re.I)
+INSTAGRAM_QUOTE_RE = re.compile(r"on Instagram:\s*[\"“](.*)[\"”]\s*$", re.I | re.S)
+POSTS_TAIL_RE = re.compile(r"Posts\s*[-–—]\s*(.+)$", re.I | re.S)
+LOGIN_SLOGAN = "create an account or log in to instagram"
+
+
+def unescape_ig(value: str) -> str:
+    text = value or ""
+    if not text:
+        return ""
+    try:
+        parsed = json.loads(f'"{text}"')
+        if isinstance(parsed, str):
+            text = parsed
+    except Exception:
+        text = (
+            text.replace("\\n", "\n")
+            .replace("\\/", "/")
+            .replace('\\"', '"')
+            .replace("\\u0026", "&")
+        )
+        text = re.sub(
+            r"\\u([0-9a-fA-F]{4})",
+            lambda m: chr(int(m.group(1), 16)),
+            text,
+        )
+    return decode_entities(text).strip()
+
+
+def is_generic_bio(text: str) -> bool:
+    value = (text or "").strip()
+    if not value:
+        return True
+    if GENERIC_BIO_RE.search(value):
+        return True
+    return LOGIN_SLOGAN in value.lower()
+
+
+def is_login_wall(html: str) -> bool:
+    low = (html or "").lower()
+    return LOGIN_SLOGAN in low or (
+        "/accounts/login" in low and "profile_pic_url_hd" not in low and '"biography"' not in low
+    )
+
+
+def extract_user_bio(user: dict[str, Any]) -> str:
+    raw = user.get("biography")
+    if isinstance(raw, dict):
+        raw = raw.get("text") or raw.get("sensitive_string_value") or raw.get("raw_text") or ""
+    bio = unescape_ig(raw if isinstance(raw, str) else "")
+    if bio and not is_generic_bio(bio):
+        return bio
+    nested = user.get("biography_with_entities")
+    if isinstance(nested, dict):
+        bio = unescape_ig(str(nested.get("raw_text") or ""))
+        if bio and not is_generic_bio(bio):
+            return bio
+    return ""
+
+
+def collect_bio_links(user: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    ext = str(user.get("external_url") or "").strip()
+    if ext:
+        seen.add(ext)
+        out.append(ext)
+    links = user.get("bio_links") or []
+    if isinstance(links, list):
+        for link in links:
+            if not isinstance(link, dict):
+                continue
+            url = str(link.get("url") or "").strip()
+            title = str(link.get("title") or "").strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            if title and title.lower() not in url.lower():
+                out.append(f"{title}\n{url}")
+            else:
+                out.append(url)
+    return out
+
+
+def compose_profile_bio(user: dict[str, Any]) -> str:
+    bio = extract_user_bio(user)
+    extras = [item for item in collect_bio_links(user) if item and item not in bio]
+    if extras:
+        return f"{bio}\n{chr(10).join(extras)}".strip() if bio else "\n".join(extras)
+    return bio
+
+
+def extract_og_bio(desc: str) -> str:
+    text = decode_entities(desc or "").strip()
+    if not text:
+        return ""
+    quoted = INSTAGRAM_QUOTE_RE.search(text)
+    if quoted:
+        inner = decode_entities(quoted.group(1)).strip()
+        return "" if is_generic_bio(inner) else inner
+    tail = POSTS_TAIL_RE.search(text)
+    if tail:
+        piece = tail.group(1).strip()
+        quoted = INSTAGRAM_QUOTE_RE.search(piece)
+        if quoted:
+            inner = decode_entities(quoted.group(1)).strip()
+            return "" if is_generic_bio(inner) else inner
+        if is_generic_bio(piece) or re.match(r".+\(@[\w.]+\)\s*$", piece):
+            return ""
+        return piece
+    if OG_STATS_RE.search(text):
+        return ""
+    return "" if is_generic_bio(text) else text
+
+
+def extract_html_bio(html: str) -> str:
+    for pat in (
+        r'"biography":"((?:\\.|[^"\\])*)"',
+        r'"raw_text":"((?:\\.|[^"\\])*)"',
+    ):
+        for match in re.finditer(pat, html or ""):
+            bio = unescape_ig(match.group(1))
+            if bio and not is_generic_bio(bio):
+                return bio
+    meta = re.search(r'name="description" content="([^"]*)"', html or "")
+    if meta:
+        bio = extract_og_bio(meta.group(1))
+        if bio:
+            return bio
+    og = re.search(r'property="og:description" content="([^"]*)"', html or "")
+    if og:
+        bio = extract_og_bio(og.group(1))
+        if bio:
+            return bio
+    return ""
+
+
+def extract_html_user_id(html: str) -> str:
+    for pat in (
+        r'"profile_id":"(\d+)"',
+        r'"logging_page_id":"profilePage_(\d+)"',
+        r"profilePage_(\d+)",
+        r'"user_id"\s*:\s*"(\d+)"',
+        r'"pk":"(\d{5,})"',
+        r'"id":"(\d{5,})","username"',
+        r'"username":"[^"]{1,30}","id":"(\d{5,})"',
+        r"instagram://user\?username=[^&\"]+&user_id=(\d+)",
+    ):
+        match = re.search(pat, html or "")
+        if match:
+            return match.group(1)
+    return ""
+
+
+def merge_profile_user(user: dict[str, Any], extra: dict[str, Any]) -> None:
+    if not extract_user_bio(user):
+        bio = extract_user_bio(extra)
+        if bio:
+            user["biography"] = bio
+        if extra.get("biography_with_entities"):
+            user["biography_with_entities"] = extra["biography_with_entities"]
+    if not user.get("full_name") and extra.get("full_name"):
+        user["full_name"] = extra["full_name"]
+    if not user.get("username") and extra.get("username"):
+        user["username"] = extra["username"]
+    hd = extra.get("hd_profile_pic_url_info")
+    if isinstance(hd, dict) and hd.get("url") and not user.get("profile_pic_url_hd"):
+        user["profile_pic_url_hd"] = hd["url"]
+    if extra.get("profile_pic_url") and not user.get("profile_pic_url"):
+        user["profile_pic_url"] = extra["profile_pic_url"]
+    if extra.get("follower_count") is not None and user.get("follower_count") is None:
+        if not ((user.get("edge_followed_by") or {}).get("count") is not None):
+            user["follower_count"] = extra["follower_count"]
+    if extra.get("following_count") is not None and user.get("following_count") is None:
+        if not ((user.get("edge_follow") or {}).get("count") is not None):
+            user["following_count"] = extra["following_count"]
+    if extra.get("media_count") is not None and user.get("media_count") is None:
+        if not ((user.get("edge_owner_to_timeline_media") or {}).get("count") is not None):
+            user["media_count"] = extra["media_count"]
+    if extra.get("bio_links"):
+        user["bio_links"] = extra["bio_links"]
+    if extra.get("external_url") and not user.get("external_url"):
+        user["external_url"] = extra["external_url"]
+    if extra.get("id") and not user.get("id"):
+        user["id"] = extra["id"]
+    if extra.get("pk") and not user.get("pk"):
+        user["pk"] = extra["pk"]
+
+
 def parse_og_stat(desc: str, label: str) -> int | None:
     m = re.search(rf"([\d.,]+\s*[KMB]?)\s*{label}", desc or "", re.I)
     if not m:
@@ -407,6 +658,10 @@ def parse_username(raw: str) -> str:
 
 def pack_profile(user: dict[str, Any]) -> dict[str, Any]:
     avatar = user.get("profile_pic_url_hd") or user.get("profile_pic_url") or ""
+    if not avatar:
+        hd = user.get("hd_profile_pic_url_info")
+        if isinstance(hd, dict):
+            avatar = hd.get("url") or ""
     if isinstance(avatar, str):
         avatar = avatar.replace("\\u0026", "&")
     followers = (user.get("edge_followed_by") or {}).get("count")
@@ -422,7 +677,7 @@ def pack_profile(user: dict[str, Any]) -> dict[str, Any]:
         "ok": True,
         "username": user.get("username") or "",
         "name": user.get("full_name") or "",
-        "bio": user.get("biography") or "",
+        "bio": compose_profile_bio(user) or user.get("biography") or "",
         "private": bool(user.get("is_private")),
         "followers": followers,
         "following": following,

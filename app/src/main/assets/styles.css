@@ -439,8 +439,13 @@ html[dir="rtl"] .primary svg { transform: scaleX(-1); }
   font-size: 14px;
   line-height: 1.65;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   text-align: start;
   margin: 0 4px 14px;
+}
+.profile-bio.empty {
+  color: var(--muted);
 }
 .stories-block {
   margin-top: 16px;

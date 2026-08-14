@@ -421,7 +421,10 @@
     $("profileCard").hidden = false;
     $("profileName").textContent = data.name || data.username || "";
     $("profileHandle").textContent = data.username ? `\u200E@${data.username}` : "";
-    $("profileBio").textContent = data.bio || t("noBio");
+    const bioText = (data.bio || "").trim();
+    $("profileBio").textContent = bioText || t("noBio");
+    $("profileBio").classList.toggle("empty", !bioText);
+    $("profileBio").dir = "auto";
     $("profileAvatar").src = data.avatar ? mediaUrl(data.avatar) : "";
     $("statPosts").textContent = compact(data.post_count);
     $("statFollowers").textContent = compact(data.followers);
