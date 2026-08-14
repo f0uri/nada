@@ -183,6 +183,11 @@ class InstagramSession:
         if page.status_code >= 400:
             raise HTTPException(404, "missing")
         html = decode_entities(page.text)
+        low = html.lower()
+        if "create an account or log in to instagram" in low or (
+            "/accounts/login" in low and "profile_pic_url_hd" not in low
+        ):
+            raise HTTPException(404, "blocked")
         pic = re.search(r'property="og:image" content="([^"]+)"', html)
         title = re.search(r'property="og:title" content="([^"]+)"', html)
         desc = re.search(r'property="og:description" content="([^"]+)"', html)
