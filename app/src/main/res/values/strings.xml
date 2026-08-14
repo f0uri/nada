@@ -4,7 +4,9 @@
     <string name="auth_hint">نسجّل هذه المرة فقط ثم نمسح الجلسة. لا نخزّن كلمة المرور ولا الكوكيز.</string>
     <string name="auth_close">إلغاء</string>
     <string name="bubble_label">تنزيل IG SAVE</string>
-    <string name="bubble_hint">اضغط زر التنزيل العائم. اضغط مطولاً لإخفائه.</string>
+    <string name="share_save">تنزيل</string>
+    <string name="bubble_hint">من إنستغرام: مشاركة ثم تنزيل. يظهر التقدم في الإشعارات.</string>
+    <string name="save_need_link">من إنستغرام اضغط مشاركة ثم تنزيل</string>
     <string name="bubble_hidden">الزر العائم مخفي. اضغط إظهار لإعادته.</string>
     <string name="bubble_channel">الزر العائم</string>
     <string name="bubble_off">إيقاف</string>
@@ -14,7 +16,6 @@
     <string name="save_working">جاري جلب المنشور…</string>
     <string name="save_started">بدأ التنزيل</string>
     <string name="save_files">%1$d ملف</string>
-    <string name="save_need_link">شارك المنشور إلى IG SAVE، أو انسخ رابطه ثم اضغط الزر</string>
     <string name="save_fail">تعذّر التنزيل</string>
     <string name="save_fail_url">هذا ليس رابط إنستغرام صالحاً</string>
     <string name="save_fail_missing">المنشور غير متاح، أو الحساب خاص</string>
