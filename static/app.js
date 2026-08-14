@@ -18,6 +18,8 @@
       libraryEyebrow: "ما حفظته هنا",
       library: "المكتبة",
       libEmpty: "لا شيء بعد. المنشورات التي تجلبها تظهر هنا بهدوء.",
+      libRemove: "حذف",
+      libRemoved: "حُذف من المكتبة.",
       about: "حول التطبيق",
       profileTitle: "بحث عن حساب",
       userLabel: "اسم المستخدم",
@@ -86,6 +88,8 @@
       libraryEyebrow: "Kept on this device",
       library: "Library",
       libEmpty: "Nothing yet. Posts you fetch will rest here.",
+      libRemove: "Remove",
+      libRemoved: "Removed from library.",
       about: "About",
       profileTitle: "Find an account",
       userLabel: "Username",
@@ -440,15 +444,18 @@
         const code = safeCode(h.shortcode);
         if (!code) return "";
         const files = Array.isArray(h.media) ? h.media.length : h.files || 1;
-        return `<button class="lib-card" type="button" data-code="${escapeHtml(code)}">
-          <figure>
-            ${src ? `<img alt="" src="${src}" />` : ph}
-            <figcaption>
-              <b>\u200E@${escapeHtml(h.username || "")}</b>
-              <span>${kindLabel(h.kind)} · ${files} ${t("files")}</span>
-            </figcaption>
-          </figure>
-        </button>`;
+        return `<article class="lib-card">
+          <button class="lib-open" type="button" data-code="${escapeHtml(code)}">
+            <figure>
+              ${src ? `<img alt="" src="${src}" />` : ph}
+              <figcaption>
+                <b>\u200E@${escapeHtml(h.username || "")}</b>
+                <span>${kindLabel(h.kind)} · ${files} ${t("files")}</span>
+              </figcaption>
+            </figure>
+          </button>
+          <button class="lib-del" type="button" data-del="${escapeHtml(code)}" aria-label="${escapeHtml(t("libRemove"))}">✕</button>
+        </article>`;
       })
       .join("");
   }
@@ -710,6 +717,17 @@
   });
 
   $("libGrid").addEventListener("click", (e) => {
+    const del = e.target.closest("[data-del]");
+    if (del) {
+      e.preventDefault();
+      const code = safeCode(del.dataset.del);
+      if (!code) return;
+      state.history = state.history.filter((h) => h.shortcode !== code);
+      persistLibrary();
+      renderLibrary();
+      toast(t("libRemoved"));
+      return;
+    }
     const btn = e.target.closest("[data-code]");
     const code = safeCode(btn && btn.dataset.code);
     if (!code) return;

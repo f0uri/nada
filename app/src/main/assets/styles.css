@@ -686,12 +686,41 @@ html[dir="ltr"] .circle svg { transform: scaleX(-1); }
   gap: 10px;
 }
 .lib-card {
+  position: relative;
   border: 0; padding: 0; text-align: start;
   border-radius: 20px; overflow: hidden;
   background: var(--stat);
   box-shadow: inset 0 0 0 1px var(--line);
-  cursor: pointer;
   color: inherit;
+}
+.lib-open {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+.lib-del {
+  position: absolute;
+  top: 8px;
+  inset-inline-end: 8px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(28, 22, 18, 0.62);
+  color: #f7f1e8;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  backdrop-filter: blur(10px);
 }
 .lib-card img, .lib-card video {
   width: 100%; height: 148px; object-fit: cover; display: block; background: #ddd4c8;
