@@ -367,6 +367,7 @@
     if (code === "user") return t("errUser");
     if (code === "url" || status === 400) return t("errUrl");
     if (code === "rate" || status === 429) return t("errRate");
+    if (code === "blocked" || code === "login") return t("errBlocked");
     if (code === "missing" || code === "empty" || status === 404) return t("errMissing");
     return t("errNet");
   }
