@@ -9,6 +9,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.math.BigInteger
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -67,6 +68,7 @@ class InstagramClient {
     }
 
     fun resolve(rawUrl: String): JSONObject {
+        parseStory(rawUrl)?.let { return resolveStory(it) }
         val shortcode = parseShortcode(rawUrl)
         val item = webInfo(shortcode)
         val post = packPost(item, shortcode)
@@ -850,6 +852,105 @@ class InstagramClient {
         return out
     }
 
+    private fun parseStory(raw: String): Triple<String, String, String>? {
+        val match = STORY_RE.find(raw.trim()) ?: return null
+        val highlight = match.groupValues[1]
+        val userWithId = match.groupValues[2]
+        val mediaId = match.groupValues[3]
+        val userOnly = match.groupValues[4]
+        return when {
+            highlight.isNotBlank() -> Triple("highlight", "", highlight)
+            userWithId.isNotBlank() && mediaId.isNotBlank() -> Triple("story", userWithId, mediaId)
+            userOnly.isNotBlank() && userOnly.lowercase(Locale.US) !in RESERVED -> Triple("user", userOnly, "")
+            else -> null
+        }
+    }
+
+    private fun mediaIdToShortcode(mediaId: String): String {
+        var value = mediaId.filter { it.isDigit() }.toBigIntegerOrNull() ?: return ""
+        if (value <= BigInteger.ZERO) return ""
+        val sixtyFour = BigInteger.valueOf(64)
+        val out = StringBuilder()
+        while (value > BigInteger.ZERO) {
+            val parts = value.divideAndRemainder(sixtyFour)
+            out.append(ALPHABET[parts[1].toInt()])
+            value = parts[0]
+        }
+        return out.reverse().toString()
+    }
+
+    private fun mediaInfo(mediaId: String): JSONObject? {
+        val mid = mediaId.filter { it.isDigit() }
+        if (mid.isBlank()) return null
+        for (url in listOf(
+            "https://www.instagram.com/api/v1/media/$mid/info/",
+            "https://i.instagram.com/api/v1/media/$mid/info/",
+        )) {
+            val items = igGet(url, "https://www.instagram.com/", mobile = url.contains("i.instagram.com"))
+                ?.optJSONArray("items")
+            val first = items?.optJSONObject(0)
+            if (first != null) return first
+        }
+        val code = mediaIdToShortcode(mid)
+        if (code.isBlank()) return null
+        return runCatching { webInfo(code) }.getOrNull()
+    }
+
+    private fun resolveStory(parsed: Triple<String, String, String>): JSONObject {
+        val (kind, username, id) = parsed
+        if (kind == "highlight") {
+            val detail = igGet(
+                "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:$id",
+                "https://www.instagram.com/",
+                mobile = true,
+            ) ?: igGet(
+                "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:$id",
+                "https://www.instagram.com/",
+            )
+            val nodes = collectReelNodes(detail, "highlight:$id")
+            if (nodes.isEmpty()) throw ApiException(404, "missing")
+            val first = nodes.first()
+            if (nodes.size == 1) {
+                val post = packPost(first, id)
+                post.put("source", "https://www.instagram.com/stories/highlights/$id/")
+                if (post.getJSONArray("media").length() == 0) throw ApiException(404, "empty")
+                return post
+            }
+            val carousel = JSONObject(first.toString()).put("carousel_media", JSONArray().apply { nodes.forEach { put(it) } }).put("media_type", 8)
+            val post = packPost(carousel, id)
+            post.put("source", "https://www.instagram.com/stories/highlights/$id/")
+            if (post.getJSONArray("media").length() == 0) throw ApiException(404, "empty")
+            return post
+        }
+        val item = if (id.isNotBlank()) mediaInfo(id) else null
+        if (item != null) {
+            val code = item.optString("code").ifBlank { mediaIdToShortcode(id) }.ifBlank { id }
+            val post = packPost(item, code)
+            val owner = item.optJSONObject("user")?.optString("username").orEmpty()
+            post.put("source", "https://www.instagram.com/stories/${username.ifBlank { owner }}/$id/")
+            if (post.getJSONArray("media").length() == 0) throw ApiException(404, "empty")
+            return post
+        }
+        if (username.isBlank()) throw ApiException(404, "missing")
+        val packed = profile(username)
+        val stories = packed.optJSONArray("stories") ?: JSONArray()
+        if (stories.length() == 0) throw ApiException(404, "missing")
+        return JSONObject()
+            .put("ok", true)
+            .put("shortcode", id.ifBlank { username })
+            .put("kind", if (stories.length() > 1) "carousel" else stories.optJSONObject(0)?.optString("kind") ?: "photo")
+            .put("taken_at", JSONObject.NULL)
+            .put("likes", JSONObject.NULL)
+            .put("comments", JSONObject.NULL)
+            .put("caption", "")
+            .put("owner", JSONObject()
+                .put("username", packed.optString("username"))
+                .put("name", packed.optString("name"))
+                .put("avatar", packed.opt("avatar") ?: JSONObject.NULL))
+            .put("media", stories)
+            .put("source", "https://www.instagram.com/stories/$username/")
+    }
+
     private fun parseShortcode(raw: String): String {
         val text = raw.trim()
         if (SHORT_RE.matches(text)) return text
@@ -920,6 +1021,11 @@ class InstagramClient {
             "(?:https?://)?(?:www\\.)?(?:instagram\\.com|instagr\\.am)/(?:[^/?#]+/)?(?:p|tv|reel|reels)/([A-Za-z0-9_-]+)",
             RegexOption.IGNORE_CASE,
         )
+        private val STORY_RE = Regex(
+            "(?:https?://)?(?:www\\.)?(?:instagram\\.com|instagr\\.am)/stories/(?:highlights/(\\d+)|([A-Za-z0-9._]+)/(\\d+)|([A-Za-z0-9._]+)/?)",
+            RegexOption.IGNORE_CASE,
+        )
+        private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
         private val SHORT_RE = Regex("^[A-Za-z0-9_-]{5,20}$")
         private val USER_RE = Regex("^[A-Za-z0-9._]{1,30}$")
         private val USER_PAGE_RE = Regex(

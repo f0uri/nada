@@ -47,7 +47,13 @@ URL_RE = re.compile(
     r"/(?:[^/?#]+/)?(?:p|tv|reel|reels)/([A-Za-z0-9_-]+)",
     re.I,
 )
+STORY_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:instagram\.com|instagr\.am)/stories/"
+    r"(?:highlights/(\d+)|([A-Za-z0-9._]+)/(\d+)|([A-Za-z0-9._]+)/?)",
+    re.I,
+)
 SHORT_RE = re.compile(r"^[A-Za-z0-9_-]{5,20}$")
+ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
 ALLOWED_HOST_PARTS = (
     "cdninstagram.com",
@@ -407,6 +413,87 @@ class InstagramSession:
                 title = str(node.get("title") or "هايلايت")
                 add_cover(str(node.get("id") or title), title, cover)
         return items[:24]
+
+    async def media_info(self, media_id: str) -> dict[str, Any] | None:
+        mid = "".join(ch for ch in media_id if ch.isdigit())
+        if not mid:
+            return None
+        for url, mobile in (
+            (f"https://www.instagram.com/api/v1/media/{mid}/info/", False),
+            (f"https://i.instagram.com/api/v1/media/{mid}/info/", True),
+        ):
+            data = await self._ig_get(url, "https://www.instagram.com/", mobile=mobile)
+            items = (data or {}).get("items") or []
+            if items and isinstance(items[0], dict):
+                return items[0]
+        code = media_id_to_shortcode(mid)
+        if not code:
+            return None
+        try:
+            return await self.web_info(code)
+        except HTTPException:
+            return None
+
+    async def resolve_story(self, raw: str) -> dict[str, Any]:
+        parsed = parse_story(raw)
+        if not parsed:
+            raise HTTPException(400, "url")
+        if parsed["kind"] == "highlight":
+            hid = parsed["id"]
+            detail = await self._ig_get(
+                f"https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:{quote(hid)}",
+                "https://www.instagram.com/",
+                mobile=True,
+            ) or await self._ig_get(
+                f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:{quote(hid)}",
+                "https://www.instagram.com/",
+            )
+            nodes = collect_reel_nodes(detail, f"highlight:{hid}")
+            if not nodes:
+                raise HTTPException(404, "missing")
+            first = nodes[0]
+            post = pack_post(first if len(nodes) == 1 else {**first, "carousel_media": nodes, "media_type": 8}, hid)
+            post["kind"] = "carousel" if len(nodes) > 1 else post["kind"]
+            post["source"] = f"https://www.instagram.com/stories/highlights/{hid}/"
+            if not post["media"]:
+                raise HTTPException(404, "empty")
+            return post
+        media_id = parsed.get("id") or ""
+        username = parsed.get("username") or ""
+        item = await self.media_info(media_id) if media_id else None
+        if not item and username:
+            user = await self.profile(username)
+            stories = await self.stories(user)
+            if not stories:
+                raise HTTPException(404, "missing")
+            owner = {
+                "username": user.get("username") or username,
+                "name": user.get("full_name") or "",
+                "avatar": None,
+            }
+            avatar = user.get("profile_pic_url_hd") or user.get("profile_pic_url") or ""
+            if isinstance(avatar, str) and host_ok(avatar):
+                owner["avatar"] = sign_url(avatar)
+            return {
+                "ok": True,
+                "shortcode": media_id or username,
+                "kind": "carousel" if len(stories) > 1 else stories[0].get("kind") or "photo",
+                "taken_at": None,
+                "likes": None,
+                "comments": None,
+                "caption": "",
+                "owner": owner,
+                "media": stories,
+                "source": f"https://www.instagram.com/stories/{username}/",
+            }
+        if not item:
+            raise HTTPException(404, "missing")
+        code = item.get("code") or media_id_to_shortcode(media_id) or media_id
+        post = pack_post(item, code)
+        post["source"] = f"https://www.instagram.com/stories/{username or item.get('user', {}).get('username') or ''}/{media_id}/"
+        if not post["media"]:
+            raise HTTPException(404, "empty")
+        return post
 
     async def user_posts(self, user: dict[str, Any], cursor: str | None = None) -> tuple[list[dict[str, Any]], str]:
         posts: list[dict[str, Any]] = []
@@ -921,8 +1008,10 @@ def pack_post(item: dict[str, Any], shortcode: str) -> dict[str, Any]:
 @app.post("/api/resolve")
 async def resolve(payload: ResolveIn, request: Request):
     hit_rate(client_ip(request))
-    shortcode = parse_shortcode(payload.url)
     try:
+        if parse_story(payload.url):
+            return await ig.resolve_story(payload.url)
+        shortcode = parse_shortcode(payload.url)
         item = await ig.web_info(shortcode)
     except HTTPException:
         raise
