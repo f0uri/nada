@@ -204,19 +204,38 @@
     $("themeBtn").textContent = state.theme === "dark" ? "☀" : "☾";
   }
 
+  function extractIgUrl(text) {
+    const m = String(text || "").match(/https?:\/\/(?:www\.)?(?:instagram\.com|instagr\.am)\/[^\s<>"']+/i);
+    if (!m) return "";
+    const raw = m[0].replace(/[),.\]>]+$/, "");
+    try {
+      const parsed = new URL(raw);
+      const path = parsed.pathname.replace(/\/{2,}/g, "/").replace(/\/+$/, "");
+      if (!path || path === "/") return "";
+      return `https://www.instagram.com${path}/`;
+    } catch {
+      return raw.split(/[?#]/)[0];
+    }
+  }
+
+  function prettyIgUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return `${parsed.host.replace(/^www\./, "")}${parsed.pathname}`.replace(/\/+$/, "");
+    } catch {
+      return String(url || "").replace(/^https?:\/\/(www\.)?/, "").split(/[?#]/)[0];
+    }
+  }
+
   function showClip(url) {
-    if (!url) {
+    const clean = extractIgUrl(url);
+    if (!clean) {
       $("clipBar").hidden = true;
       return;
     }
-    state.clip = url;
-    $("clipUrl").textContent = url;
+    state.clip = clean;
+    $("clipUrl").textContent = prettyIgUrl(clean);
     $("clipBar").hidden = false;
-  }
-
-  function extractIgUrl(text) {
-    const m = String(text || "").match(/https?:\/\/(?:www\.)?(?:instagram\.com|instagr\.am)\/\S+/i);
-    return m ? m[0].replace(/[),.\]]+$/, "") : "";
   }
 
   async function checkClipboard() {
@@ -295,7 +314,7 @@
     $("who").innerHTML = `
       ${avatarSrc ? `<img alt="" src="${avatarSrc}" />` : ""}
       <div>
-        <b>@${escapeHtml(owner.username || "instagram")}</b>
+        <b>\u200E@${escapeHtml(owner.username || "instagram")}</b>
         <span>${escapeHtml(owner.name || "")}</span>
       </div>`;
     $("kindBadge").textContent = kindLabel(post.kind);
@@ -330,26 +349,83 @@
     });
   }
 
+  function persistLibrary() {
+    try {
+      const slim = state.history.map((h) => ({
+        shortcode: h.shortcode,
+        kind: h.kind,
+        username: h.username,
+        name: h.name,
+        thumbData: h.thumbData || "",
+        files: Array.isArray(h.media) ? h.media.length : h.files || 1,
+        at: h.at,
+      }));
+      localStorage.setItem("nada-lib", JSON.stringify(slim));
+    } catch (_) {}
+  }
+
+  function snapshotThumb(token) {
+    const src = mediaUrl(token);
+    if (!src) return Promise.resolve("");
+    return fetch(src)
+      .then((res) => (res.ok ? res.blob() : Promise.reject()))
+      .then((blob) => new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(blob);
+        img.onload = () => {
+          try {
+            const size = 360;
+            const canvas = document.createElement("canvas");
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext("2d");
+            const scale = Math.max(size / img.width, size / img.height);
+            const w = img.width * scale;
+            const h = img.height * scale;
+            ctx.drawImage(img, (size - w) / 2, (size - h) / 2, w, h);
+            resolve(canvas.toDataURL("image/jpeg", 0.7));
+          } catch (err) {
+            reject(err);
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("img"));
+        };
+        img.src = url;
+      }))
+      .catch(() => "");
+  }
+
   function remember(post) {
     const preview = post.media[0];
+    const prev = state.history.find((h) => h.shortcode === post.shortcode) || {};
     const entry = {
       shortcode: post.shortcode,
       kind: post.kind,
       username: post.owner.username,
       name: post.owner.name,
-      avatar: post.owner.avatar,
-      caption: post.caption,
-      likes: post.likes,
-      comments: post.comments,
-      taken_at: post.taken_at,
-      source: post.source,
       media: post.media,
+      files: post.media.length,
       thumb: preview ? preview.preview : null,
+      thumbData: prev.thumbData || "",
       at: Date.now(),
     };
     state.history = [entry, ...state.history.filter((h) => h.shortcode !== post.shortcode)].slice(0, 24);
-    localStorage.setItem("nada-lib", JSON.stringify(state.history));
+    persistLibrary();
     renderLibrary();
+    if (!entry.thumbData && preview && preview.preview) {
+      snapshotThumb(preview.preview).then((data) => {
+        if (!data) return;
+        const item = state.history.find((h) => h.shortcode === post.shortcode);
+        if (!item) return;
+        item.thumbData = data;
+        persistLibrary();
+        renderLibrary();
+      });
+    }
   }
 
   function renderLibrary() {
@@ -357,17 +433,19 @@
     const grid = $("libGrid");
     if (!empty || !grid) return;
     empty.hidden = state.history.length > 0;
+    const ph = `<div class="lib-ph" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="14" rx="2.4" stroke="currentColor" stroke-width="1.7"/><path d="m8 14 2.4-2.6 2.2 2.1L16.2 10 20 14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>`;
     grid.innerHTML = state.history
       .map((h) => {
-        const src = h.thumb ? mediaUrl(h.thumb) : "";
+        const src = h.thumbData || "";
         const code = safeCode(h.shortcode);
         if (!code) return "";
+        const files = Array.isArray(h.media) ? h.media.length : h.files || 1;
         return `<button class="lib-card" type="button" data-code="${escapeHtml(code)}">
           <figure>
-            ${src ? `<img alt="" src="${escapeHtml(src)}" />` : `<div style="height:148px"></div>`}
+            ${src ? `<img alt="" src="${src}" />` : ph}
             <figcaption>
-              <b>@${escapeHtml(h.username || "")}</b>
-              <span>${kindLabel(h.kind)} · ${h.media.length} ${t("files")}</span>
+              <b>\u200E@${escapeHtml(h.username || "")}</b>
+              <span>${kindLabel(h.kind)} · ${files} ${t("files")}</span>
             </figcaption>
           </figure>
         </button>`;
@@ -463,8 +541,10 @@
     grid.innerHTML = list
       .map((item) => {
         const src = item.preview ? mediaUrl(item.preview) : "";
-        return `<button class="grid-item" type="button" data-code="${escapeHtml(item.shortcode || "")}">
-          ${src ? `<img alt="" src="${src}" />` : ""}
+        const code = safeCode(item.shortcode);
+        if (!code) return "";
+        return `<button class="grid-item" type="button" data-code="${escapeHtml(code)}">
+          ${src ? `<img alt="" src="${escapeHtml(src)}" />` : ""}
           <i>${kindLabel(item.kind || "photo")}</i>
         </button>`;
       })
@@ -507,19 +587,20 @@
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const url = input.value.trim();
+    const url = extractIgUrl(input.value) || input.value.trim();
     if (!url) {
       input.focus();
       return;
     }
-    resolve(url);
+    input.value = extractIgUrl(url) || url;
+    resolve(extractIgUrl(url) || url);
   });
 
   $("pasteBtn").addEventListener("click", async () => {
     try {
       const text = await navigator.clipboard.readText();
       if (!text) throw new Error("empty");
-      input.value = text.trim();
+      input.value = extractIgUrl(text) || text.trim();
       toast(t("pasted"));
     } catch {
       toast(t("errClip"));
@@ -558,7 +639,7 @@
 
   $("profileGrid").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-code]");
-    const code = safeCode(btn.dataset.code);
+    const code = safeCode(btn && btn.dataset.code);
     if (!code) return;
     resolve(`https://www.instagram.com/p/${code}/`);
   });
@@ -675,7 +756,7 @@
   });
 
   window.nadaOpen = function nadaOpen(url) {
-    const text = String(url || "").trim();
+    const text = extractIgUrl(url);
     if (!text) return;
     input.value = text;
     showView("home");

@@ -252,6 +252,38 @@ h1 {
   max-width: 34ch;
 }
 
+.clip-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 22px;
+  padding: 12px;
+  margin: 8px 0 2px;
+  min-width: 0;
+}
+.clip-bar > div:first-child {
+  min-width: 0;
+  flex: 1;
+}
+.clip-url {
+  margin-top: 3px;
+  font-family: "Nada EN", sans-serif;
+  font-size: 12.5px;
+  color: var(--ink);
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.clip-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
 .lang {
   border: 0;
   background: var(--glass);
@@ -664,8 +696,22 @@ html[dir="ltr"] .circle svg { transform: scaleX(-1); }
 .lib-card img, .lib-card video {
   width: 100%; height: 148px; object-fit: cover; display: block; background: #ddd4c8;
 }
+.lib-ph {
+  height: 148px;
+  display: grid;
+  place-items: center;
+  color: var(--soft);
+  background: rgba(40, 30, 22, 0.08);
+}
+.lib-ph svg { width: 28px; height: 28px; opacity: .7; }
 .lib-card figcaption { padding: 8px 10px 10px; }
-.lib-card b { display: block; font-size: 12.5px; }
+.lib-card b {
+  display: block;
+  font-size: 12.5px;
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: start;
+}
 .lib-card span { color: var(--muted); font-size: 11px; }
 
 .tabbar {
