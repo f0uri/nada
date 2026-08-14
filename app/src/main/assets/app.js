@@ -636,6 +636,22 @@
     lookupProfile(username);
   });
 
+  $("dlStoriesBtn")?.addEventListener("click", async () => {
+    const items = profileState?.stories || [];
+    if (!items.length) return;
+    for (const item of items) {
+      if (!item.file) continue;
+      const a = document.createElement("a");
+      a.href = mediaUrl(item.file, true, `${profileState.username || "story"}_${item.id || "item"}`);
+      a.download = "";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    toast(t("saved"));
+  });
+
   $("dlAvatarBtn").addEventListener("click", () => {
     if (!profileState || !profileState.avatar) return;
     const a = document.createElement("a");

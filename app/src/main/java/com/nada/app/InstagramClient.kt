@@ -40,26 +40,15 @@ class InstagramClient {
 
     fun profile(raw: String): JSONObject {
         val username = parseUsername(raw)
-        val token = ensureCsrf()
-        val request = Request.Builder()
-            .url("https://www.instagram.com/api/v1/users/web_profile_info/?username=$username")
-            .header("User-Agent", UA)
-            .header("x-ig-app-id", APP_ID)
-            .header("x-asbd-id", "359341")
-            .header("x-csrftoken", token)
-            .header("x-ig-www-claim", "0")
-            .header("x-requested-with", "XMLHttpRequest")
-            .header("referer", "https://www.instagram.com/$username/")
-            .build()
-        client.newCall(request).execute().use { response ->
-            if (response.code == 429) throw ApiException(429, "rate")
-            if (response.isSuccessful) {
-                val user = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
-                    .optJSONObject("data")
-                    ?.optJSONObject("user")
-                if (user != null && user.optString("username").isNotBlank()) {
-                    return attachPosts(attachStories(packProfile(user), user), user)
-                }
+        val sources = listOf(
+            "https://www.instagram.com/api/v1/users/web_profile_info/?username=$username",
+            "https://i.instagram.com/api/v1/users/web_profile_info/?username=$username",
+        )
+        for (url in sources) {
+            val data = igGet(url, "https://www.instagram.com/$username/", mobile = url.contains("i.instagram.com"))
+            val user = data?.optJSONObject("data")?.optJSONObject("user")
+            if (user != null && user.optString("username").isNotBlank()) {
+                return attachPosts(attachStories(packProfile(user), user), user)
             }
         }
         return profileFromHtml(username)
@@ -256,7 +245,7 @@ class InstagramClient {
             .put("ok", true)
             .put("username", user.optString("username"))
             .put("name", user.optString("full_name"))
-            .put("bio", user.optString("biography"))
+            .put("bio", unescapeJson(user.optString("biography")))
             .put("private", user.optBoolean("is_private"))
             .put("followers", followers)
             .put("following", following)
@@ -268,12 +257,12 @@ class InstagramClient {
             .put("cursor", "")
     }
 
-    private fun igGet(url: String, referer: String): JSONObject? {
+    private fun igGet(url: String, referer: String, mobile: Boolean = false): JSONObject? {
         val token = runCatching { ensureCsrf() }.getOrNull() ?: return null
         val request = Request.Builder()
             .url(url)
-            .header("User-Agent", UA)
-            .header("x-ig-app-id", APP_ID)
+            .header("User-Agent", if (mobile) IG_MOBILE_UA else UA)
+            .header("x-ig-app-id", if (mobile) IG_ANDROID_APP_ID else APP_ID)
             .header("x-asbd-id", "359341")
             .header("x-csrftoken", token)
             .header("x-ig-www-claim", "0")
@@ -299,13 +288,14 @@ class InstagramClient {
         val userId = user.optString("id").ifBlank { user.optString("pk") }
         if (userId.isNotBlank()) {
             val liveUrls = listOf(
-                "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$userId",
-                "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=$userId",
+                "https://i.instagram.com/api/v1/feed/user/$userId/reel_media/",
                 "https://i.instagram.com/api/v1/feed/user/$userId/story/",
+                "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=$userId",
+                "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$userId",
                 "https://www.instagram.com/api/v1/feed/user/$userId/story/",
             )
             for (url in liveUrls) {
-                collectReelItems(igGet(url, "https://www.instagram.com/"), userId).forEach {
+                collectReelItems(igGet(url, "https://www.instagram.com/", mobile = url.contains("i.instagram.com")), userId).forEach {
                     addItem(it, "قصة")
                 }
                 if (stories.length() > 0) break
@@ -315,17 +305,18 @@ class InstagramClient {
                 "https://i.instagram.com/api/v1/highlights/$userId/highlights_tray/",
             )
             for (trayUrl in trayUrls) {
-                val highlights = igGet(trayUrl, "https://www.instagram.com/")?.optJSONArray("tray") ?: JSONArray()
+                val highlights = igGet(trayUrl, "https://www.instagram.com/", mobile = trayUrl.contains("i.instagram.com"))?.optJSONArray("tray") ?: JSONArray()
                 for (i in 0 until minOf(highlights.length(), 16)) {
                     val hl = highlights.optJSONObject(i) ?: continue
                     val hid = hl.optString("id").removePrefix("highlight:")
                     val title = hl.optString("title").ifBlank { "هايلايت" }.take(18)
                     if (hid.isBlank()) continue
                     val detail = igGet(
-                        "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:$hid",
-                        "https://www.instagram.com/",
-                    ) ?: igGet(
                         "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:$hid",
+                        "https://www.instagram.com/",
+                        mobile = true,
+                    ) ?: igGet(
+                        "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:$hid",
                         "https://www.instagram.com/",
                     )
                     val items = collectReelItems(detail, "highlight:$hid")
@@ -502,14 +493,16 @@ class InstagramClient {
             val desc = Regex("""property="og:description" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
             val hd = Regex(""""profile_pic_url_hd":"([^"]+)"""").find(html)?.groupValues?.get(1)
                 ?.replace("\\u0026", "&")?.replace("\\/", "/").orEmpty()
-            val bioRaw = Regex(""""biography":"((?:\\.|[^"\\])*)"""").find(html)?.groupValues?.get(1)
-                ?.replace("\\n", "\n")?.replace("\\\"", "\"")?.replace("\\/", "/").orEmpty()
+            val bioRaw = extractHtmlBio(html)
             val userId = Regex(""""profile_id":"(\d+)"""").find(html)?.groupValues?.get(1)
-                ?: Regex(""""id":"(\d{5,})"""").find(html)?.groupValues?.get(1).orEmpty()
+                ?: Regex(""""profilePage_(\d+)"""").find(html)?.groupValues?.get(1)
+                ?: Regex(""""user_id"\s*:\s*"(\d+)"""").find(html)?.groupValues?.get(1)
+                ?: Regex(""""owner":\{"id":"(\d+)"""").find(html)?.groupValues?.get(1)
+                .orEmpty()
             if (pic.isBlank() && hd.isBlank() && title.isBlank()) throw ApiException(404, "missing")
             val name = cleanProfileName(title, username)
             val stats = parseOgStats(desc)
-            val bio = if (bioRaw.isNotBlank()) bioRaw else ""
+            val bio = bioRaw.ifBlank { cleanOgBio(desc) }
             val user = JSONObject()
                 .put("username", username)
                 .put("full_name", name)
@@ -520,8 +513,52 @@ class InstagramClient {
                 .put("media_count", stats[2])
                 .put("id", userId)
                 .put("pk", userId)
-            return attachPosts(attachStories(packProfile(user), user), user)
+            var result = attachPosts(attachStories(packProfile(user), user), user)
+            if ((result.optJSONArray("stories")?.length() ?: 0) == 0) {
+                val extra = JSONArray()
+                Regex(""""highlight:(\d+)"""").findAll(html).map { it.groupValues[1] }.distinct().take(10).forEach { hid ->
+                    val detail = igGet(
+                        "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:$hid",
+                        "https://www.instagram.com/",
+                        mobile = true,
+                    )
+                    collectReelItems(detail, "highlight:$hid").forEach { node ->
+                        packMedia(node, extra.length() + 1)?.let {
+                            it.put("title", "هايلايت")
+                            extra.put(it)
+                        }
+                    }
+                }
+                if (extra.length() > 0) result.put("stories", extra)
+            }
+            return result
         }
+    }
+
+    private fun extractHtmlBio(html: String): String {
+        val fromJson = Regex(""""biography":"((?:\\.|[^"\\])*)"""").find(html)?.groupValues?.get(1).orEmpty()
+        if (fromJson.isNotBlank()) return unescapeJson(fromJson)
+        val meta = Regex("""name="description" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
+        return cleanOgBio(decodeEntities(meta))
+    }
+
+    private fun cleanOgBio(desc: String): String {
+        val text = decodeEntities(desc).trim()
+        if (text.isBlank()) return ""
+        if (Regex("""\d[\d.,]*\s*[KMB]?\s*Followers""", RegexOption.IGNORE_CASE).containsMatchIn(text)) return ""
+        return text.replace(Regex("""\s*\(@[^)]+\)\s*"""), " ").trim()
+    }
+
+    private fun unescapeJson(value: String): String {
+        var out = value
+            .replace("\\n", "\n")
+            .replace("\\/", "/")
+            .replace("\\\"", "\"")
+            .replace("\\u0026", "&")
+        out = Regex("""\\u([0-9a-fA-F]{4})""").replace(out) { mr ->
+            mr.groupValues[1].toIntOrNull(16)?.toChar()?.toString() ?: mr.value
+        }
+        return decodeEntities(out).trim()
     }
 
     private fun cleanProfileName(title: String, username: String): String {
