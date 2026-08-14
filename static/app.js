@@ -55,6 +55,10 @@
       tabHome: "الرئيسية",
       tabLib: "المكتبة",
       tabAbout: "حول",
+      bubbleTitle: "زر عائم",
+      bubbleBody: "يبقى فوق إنستغرام. انسخ الرابط ثم اضغط الزر لجلبه. اضغط مطولاً لإخفائه. لا يقرأ الشاشة.",
+      bubbleOn: "تفعيل الزر العائم",
+      bubbleOff: "إيقاف الزر العائم",
       loading: "نبحث عن المنشور…",
       reel: "ريلز",
       photo: "صورة",
@@ -129,6 +133,10 @@
       tabHome: "Home",
       tabLib: "Library",
       tabAbout: "About",
+      bubbleTitle: "Floating button",
+      bubbleBody: "Stays over Instagram. Copy the link, then tap the bubble to fetch it. Long-press to hide. It does not read the screen.",
+      bubbleOn: "Enable floating button",
+      bubbleOff: "Disable floating button",
       loading: "Looking for the post…",
       reel: "Reel",
       photo: "Photo",
@@ -875,6 +883,30 @@
     showView("home");
     toast(t("shared"));
     resolve(text);
+  };
+
+  function syncBubble(on) {
+    const btn = $("bubbleBtn");
+    if (!btn) return;
+    const active = !!on;
+    btn.dataset.on = active ? "1" : "0";
+    btn.textContent = t(active ? "bubbleOff" : "bubbleOn");
+  }
+
+  const bubbleBtn = $("bubbleBtn");
+  if (bubbleBtn) {
+    bubbleBtn.addEventListener("click", () => {
+      if (!window.NadaBridge || typeof window.NadaBridge.setBubble !== "function") {
+        toast(t("storiesNeedApp"));
+        return;
+      }
+      const next = bubbleBtn.dataset.on !== "1";
+      window.NadaBridge.setBubble(next);
+      syncBubble(next);
+    });
+  }
+  window.nadaBubbleState = function nadaBubbleState(on) {
+    syncBubble(!!on);
   };
 
   window.nadaOfferClip = function nadaOfferClip(url) {

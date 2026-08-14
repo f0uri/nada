@@ -1,4 +1,5 @@
 -keep class com.nada.app.MainActivity { <init>(); }
+-keep class com.nada.app.BubbleService { <init>(); }
 -keepclassmembers class com.nada.app.MainActivity$StoryBridge {
     @android.webkit.JavascriptInterface <methods>;
 }

@@ -18,6 +18,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.os.Build
+import android.provider.Settings
 import android.widget.Button
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -108,6 +110,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.authClose).setOnClickListener { closeStoryLogin() }
         web.loadUrl(NadaServer.BASE)
         queueUrl(extractInstagramUrl(intent))
+        restoreBubble()
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -175,6 +178,43 @@ class MainActivity : AppCompatActivity() {
             val id = userId.filter { it.isDigit() }.take(20)
             if (id.isBlank()) return
             runOnUiThread { openStoryLogin(id) }
+        }
+
+        @JavascriptInterface
+        fun setBubble(on: Boolean) {
+            runOnUiThread { applyBubble(on) }
+        }
+
+        @JavascriptInterface
+        fun isBubbleOn(): Boolean {
+            return Prefs.bubbleOn(this@MainActivity) && Settings.canDrawOverlays(this@MainActivity)
+        }
+    }
+
+    private fun applyBubble(on: Boolean) {
+        Prefs.setBubble(this, on)
+        if (!on) {
+            BubbleService.stop(this)
+            return
+        }
+        if (!Settings.canDrawOverlays(this)) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName"),
+                ),
+            )
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 26)
+        }
+        BubbleService.start(this)
+    }
+
+    private fun restoreBubble() {
+        if (Prefs.bubbleOn(this) && Settings.canDrawOverlays(this)) {
+            BubbleService.start(this)
         }
     }
 

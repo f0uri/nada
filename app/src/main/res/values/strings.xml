@@ -3,4 +3,8 @@
     <string name="auth_title">دخول مؤقت للستوريات</string>
     <string name="auth_hint">نسجّل هذه المرة فقط ثم نمسح الجلسة. لا نخزّن كلمة المرور ولا الكوكيز.</string>
     <string name="auth_close">إلغاء</string>
+    <string name="bubble_label">زر IG SAVE</string>
+    <string name="bubble_hint">اضغط بعد نسخ رابط إنستغرام. اضغط مطولاً للإغلاق.</string>
+    <string name="bubble_channel">الزر العائم</string>
+    <string name="bubble_off">إيقاف</string>
 </resources>
