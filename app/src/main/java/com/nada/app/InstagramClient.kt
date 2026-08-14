@@ -298,7 +298,7 @@ class InstagramClient {
                 Regex("\"csrf_token\":\"([^\"]+)\"").find(body)?.groupValues?.get(1).orEmpty()
             }
             if (lsd.isBlank()) {
-                val eqmc = Regex("<script[^>]*id=\"__eqmc\"[^>]*>(\{.*?\})</script>")
+                val eqmc = Regex("""<script[^>]*id="__eqmc"[^>]*>({.*?})</script>""")
                     .find(body)?.groupValues?.get(1).orEmpty()
                 if (eqmc.isNotBlank()) {
                     lsd = runCatching { JSONObject(eqmc).optString("l") }.getOrDefault("")
