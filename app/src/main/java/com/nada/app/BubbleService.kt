@@ -151,7 +151,8 @@ class BubbleService : Service() {
     }
 
     private fun saveInBackground() {
-        startActivity(QuickSaveActivity.intent(this))
+        runCatching { startActivity(QuickSaveActivity.intent(this)) }
+            .onFailure { QuickSaveService.notifyNeedLink(this) }
     }
 
     private fun buildNotification(): Notification {

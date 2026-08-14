@@ -18,10 +18,16 @@ class QuickSaveActivity : Activity() {
         if (hasFocus) handOff()
     }
 
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        handed = false
+        handOff()
+    }
+
     override fun onResume() {
         super.onResume()
         window.decorView.postDelayed({
-            if (!handed) handOff()
+            if (!isFinishing && !handed) handOff()
         }, 350)
     }
 

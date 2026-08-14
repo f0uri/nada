@@ -62,6 +62,11 @@ class InstagramClient {
             }
         }
         val resolved = user ?: profileUserFromHtml(username)
+        if (user != null && extractUserBio(resolved).isBlank()) {
+            runCatching { profileUserFromHtml(username) }.getOrNull()?.let { htmlUser ->
+                mergeProfileUser(resolved, htmlUser)
+            }
+        }
         enrichUser(resolved)
         val packed = packProfile(resolved)
         return attachPosts(attachStories(packed, resolved), resolved)
@@ -285,7 +290,7 @@ class InstagramClient {
             .put("ok", true)
             .put("username", user.optString("username"))
             .put("name", user.optString("full_name"))
-            .put("bio", composeProfileBio(user).ifBlank { extractUserBio(user) })
+            .put("bio", composeProfileBio(user))
             .put("private", user.optBoolean("is_private"))
             .put("followers", followers)
             .put("following", following)

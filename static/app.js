@@ -57,7 +57,7 @@
       tabLib: "المكتبة",
       tabAbout: "حول",
       bubbleTitle: "زر عائم",
-      bubbleBody: "يبقى فوق إنستغرام. انسخ الرابط ثم اضغط الزر لجلبه. اضغط مطولاً لإخفائه. لا يقرأ الشاشة.",
+      bubbleBody: "يبقى فوق إنستغرام. انسخ الرابط ثم اضغط الزر ليُنزَّل في الخلفية ويظهر في الإشعارات. اضغط مطولاً لإخفائه. لا يقرأ الشاشة.",
       bubbleOn: "تفعيل الزر العائم",
       bubbleOff: "إيقاف الزر العائم",
       loading: "نبحث عن المنشور…",
@@ -218,6 +218,7 @@
     $("themeBtn").textContent = state.theme === "dark" ? "☀" : "☾";
     if (state.post) renderResult(state.post, false);
     if (profileState) {
+      paintBio(profileState);
       renderStories(profileState.stories || []);
       renderProfileGrid(profileState.posts || []);
     }
@@ -545,15 +546,34 @@
     return x.toLocaleString(state.lang === "ar" ? "ar" : "en");
   }
 
+  function asBio(value) {
+    if (typeof value === "string") return value.trim();
+    if (value && typeof value === "object") {
+      return String(value.text || value.raw_text || value.sensitive_string_value || "").trim();
+    }
+    return "";
+  }
+
+  function paintBio(data) {
+    const el = $("profileBio");
+    if (!el) return;
+    const bioText = asBio(data && data.bio);
+    if (data) data.bio = bioText;
+    el.textContent = bioText || t("noBio");
+    el.classList.toggle("empty", !bioText);
+    el.dir = "auto";
+  }
+
   function renderProfile(data) {
+    const prevBio = profileState && profileState.username === (data && data.username)
+      ? asBio(profileState.bio)
+      : "";
     profileState = data;
     $("profileCard").hidden = false;
     $("profileName").textContent = data.name || data.username || "";
     $("profileHandle").textContent = data.username ? `\u200E@${data.username}` : "";
-    const bioText = (data.bio || "").trim();
-    $("profileBio").textContent = bioText || t("noBio");
-    $("profileBio").classList.toggle("empty", !bioText);
-    $("profileBio").dir = "auto";
+    data.bio = asBio(data.bio) || prevBio;
+    paintBio(data);
     const avatar = data.avatar ? mediaUrl(data.avatar) : "";
     if (avatar) $("profileAvatar").src = avatar;
     else $("profileAvatar").removeAttribute("src");
@@ -891,7 +911,7 @@
   });
 
   $("copyBioBtn").addEventListener("click", async () => {
-    const text = profileState?.bio || "";
+    const text = asBio(profileState && profileState.bio);
     if (!text) {
       toast(t("noBio"));
       return;
@@ -908,10 +928,34 @@
     const text = extractIgUrl(url);
     if (!text) return;
     input.value = text;
+    syncUrlClear();
     showView("home");
     toast(t("shared"));
     resolve(text);
   };
+
+  window.nadaStoriesReady = function nadaStoriesReady(raw) {
+    let list = raw;
+    if (typeof raw === "string") {
+      try { list = JSON.parse(raw); } catch { list = []; }
+    }
+    if (!Array.isArray(list)) list = [];
+    if (!profileState) return;
+    renderStories(list);
+    toast(t("storiesReady"));
+  };
+
+  const storyLoginBtn = $("storyLoginBtn");
+  if (storyLoginBtn) {
+    storyLoginBtn.addEventListener("click", () => {
+      if (!profileState || !profileState.user_id) return;
+      if (!window.NadaBridge || typeof window.NadaBridge.requestStories !== "function") {
+        toast(t("storiesNeedApp"));
+        return;
+      }
+      window.NadaBridge.requestStories(String(profileState.user_id), profileState.username || "");
+    });
+  }
 
   function syncBubble(on) {
     const btn = $("bubbleBtn");

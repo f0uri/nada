@@ -95,7 +95,18 @@ class QuickSaveService : Service() {
         } else {
             request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, file.name)
         }
-        manager.enqueue(request)
+        try {
+            manager.enqueue(request)
+        } catch (_: SecurityException) {
+            val fallback = DownloadManager.Request(Uri.parse(file.url))
+                .setMimeType(file.mime)
+                .setTitle(file.name)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .addRequestHeader("User-Agent", UA)
+                .addRequestHeader("Referer", "https://www.instagram.com/")
+                .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, file.name)
+            manager.enqueue(fallback)
+        }
     }
 
     private fun mapError(ex: InstagramClient.ApiException): String {
@@ -124,10 +135,16 @@ class QuickSaveService : Service() {
 
     private fun buildNotification(title: String, text: String, ongoing: Boolean, error: Boolean): Notification {
         ensureChannel(this)
+        val downloads = Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)
+        val target = if (downloads.resolveActivity(packageManager) != null) {
+            downloads
+        } else {
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
         val open = PendingIntent.getActivity(
             this,
             4,
-            Intent(DownloadManager.ACTION_VIEW_DOWNLOADS),
+            target,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)

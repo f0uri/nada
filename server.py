@@ -172,6 +172,13 @@ class InstagramSession:
         user = await self.web_profile(username)
         if not user:
             user = await self.profile_from_html(username)
+        elif not extract_user_bio(user):
+            try:
+                html_user = await self.profile_from_html(username)
+            except HTTPException:
+                html_user = None
+            if html_user:
+                merge_profile_user(user, html_user)
         if not user:
             raise HTTPException(404, "missing")
         return await self.enrich_profile(user)
@@ -800,7 +807,7 @@ def pack_profile(user: dict[str, Any]) -> dict[str, Any]:
         "ok": True,
         "username": user.get("username") or "",
         "name": user.get("full_name") or "",
-        "bio": compose_profile_bio(user) or user.get("biography") or "",
+        "bio": compose_profile_bio(user),
         "private": bool(user.get("is_private")),
         "followers": followers,
         "following": following,
