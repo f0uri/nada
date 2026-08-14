@@ -288,50 +288,81 @@ class InstagramClient {
 
     private fun attachStories(profile: JSONObject, user: JSONObject): JSONObject {
         val stories = JSONArray()
+        val seen = mutableSetOf<String>()
+        fun addItem(node: JSONObject, title: String) {
+            val packed = packMedia(node, stories.length() + 1) ?: return
+            val key = packed.optString("id").ifBlank { packed.optString("file") }
+            if (key.isNotBlank() && !seen.add(key)) return
+            packed.put("title", title)
+            stories.put(packed)
+        }
         val userId = user.optString("id").ifBlank { user.optString("pk") }
         if (userId.isNotBlank()) {
-            val live = igGet(
+            val liveUrls = listOf(
                 "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=$userId",
-                "https://www.instagram.com/",
+                "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=$userId",
+                "https://i.instagram.com/api/v1/feed/user/$userId/story/",
+                "https://www.instagram.com/api/v1/feed/user/$userId/story/",
             )
-            val liveItems = live?.optJSONObject("reels")?.optJSONObject(userId)?.optJSONArray("items") ?: JSONArray()
-            for (i in 0 until liveItems.length()) {
-                packMedia(liveItems.getJSONObject(i), stories.length() + 1)?.let {
-                    it.put("title", "قصة")
-                    stories.put(it)
+            for (url in liveUrls) {
+                collectReelItems(igGet(url, "https://www.instagram.com/"), userId).forEach {
+                    addItem(it, "قصة")
                 }
+                if (stories.length() > 0) break
             }
-            val highlights = igGet(
+            val trayUrls = listOf(
                 "https://www.instagram.com/api/v1/highlights/$userId/highlights_tray/",
-                "https://www.instagram.com/",
-            )?.optJSONArray("tray") ?: JSONArray()
-            for (i in 0 until minOf(highlights.length(), 12)) {
-                val hl = highlights.optJSONObject(i) ?: continue
-                val hid = hl.optString("id").removePrefix("highlight:")
-                val title = hl.optString("title").ifBlank { "هايلايت" }.take(18)
-                if (hid.isBlank()) continue
-                val detail = igGet(
-                    "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:$hid",
-                    "https://www.instagram.com/",
-                )
-                val items = detail?.optJSONObject("reels")
-                    ?.optJSONObject("highlight:$hid")
-                    ?.optJSONArray("items") ?: JSONArray()
-                for (j in 0 until items.length()) {
-                    packMedia(items.getJSONObject(j), stories.length() + 1)?.let {
-                        it.put("title", title)
-                        stories.put(it)
+                "https://i.instagram.com/api/v1/highlights/$userId/highlights_tray/",
+            )
+            for (trayUrl in trayUrls) {
+                val highlights = igGet(trayUrl, "https://www.instagram.com/")?.optJSONArray("tray") ?: JSONArray()
+                for (i in 0 until minOf(highlights.length(), 16)) {
+                    val hl = highlights.optJSONObject(i) ?: continue
+                    val hid = hl.optString("id").removePrefix("highlight:")
+                    val title = hl.optString("title").ifBlank { "هايلايت" }.take(18)
+                    if (hid.isBlank()) continue
+                    val detail = igGet(
+                        "https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:$hid",
+                        "https://www.instagram.com/",
+                    ) ?: igGet(
+                        "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:$hid",
+                        "https://www.instagram.com/",
+                    )
+                    val items = collectReelItems(detail, "highlight:$hid")
+                    if (items.isEmpty()) {
+                        val cover = hl.optJSONObject("cover_media")
+                            ?.optJSONObject("cropped_image_version")
+                            ?.optString("url")
+                            .orEmpty()
+                            .ifBlank { hl.optJSONObject("cover_media")?.optString("thumbnail_src").orEmpty() }
+                        if (cover.isNotBlank() && hostOk(cover)) {
+                            val key = "cover-$hid"
+                            if (seen.add(key)) {
+                                stories.put(
+                                    JSONObject()
+                                        .put("id", hid)
+                                        .put("kind", "image")
+                                        .put("preview", signUrl(cover))
+                                        .put("file", signUrl(cover))
+                                        .put("ext", "jpg")
+                                        .put("title", title),
+                                )
+                            }
+                        }
+                    } else {
+                        items.forEach { addItem(it, title) }
                     }
                 }
+                if (stories.length() > 0) break
             }
         }
         if (stories.length() == 0) {
             val edges = user.optJSONObject("edge_highlight_reels")?.optJSONArray("edges") ?: JSONArray()
-            for (i in 0 until minOf(edges.length(), 12)) {
+            for (i in 0 until minOf(edges.length(), 16)) {
                 val node = edges.optJSONObject(i)?.optJSONObject("node") ?: continue
                 val cover = node.optJSONObject("cover_media")?.optString("thumbnail_src").orEmpty()
                 val title = node.optString("title").ifBlank { "هايلايت" }.take(18)
-                if (cover.isNotBlank() && hostOk(cover)) {
+                if (cover.isNotBlank() && hostOk(cover) && seen.add(cover)) {
                     stories.put(
                         JSONObject()
                             .put("id", node.optString("id").ifBlank { title })
@@ -346,6 +377,30 @@ class InstagramClient {
         }
         profile.put("stories", stories)
         return profile
+    }
+
+    private fun collectReelItems(data: JSONObject?, key: String): List<JSONObject> {
+        if (data == null) return emptyList()
+        val out = mutableListOf<JSONObject>()
+        val mapped = data.optJSONObject("reels")
+        val fromMap = mapped?.optJSONObject(key) ?: mapped?.optJSONObject(key.removePrefix("highlight:"))
+        val arr = fromMap?.optJSONArray("items")
+        if (arr != null) {
+            for (i in 0 until arr.length()) out += arr.getJSONObject(i)
+        }
+        val media = data.optJSONArray("reels_media") ?: data.optJSONArray("items")
+        if (media != null) {
+            for (i in 0 until media.length()) {
+                val node = media.optJSONObject(i) ?: continue
+                val nested = node.optJSONArray("items")
+                if (nested != null) {
+                    for (j in 0 until nested.length()) out += nested.getJSONObject(j)
+                } else if (node.has("image_versions2") || node.has("video_versions")) {
+                    out += node
+                }
+            }
+        }
+        return out
     }
 
     fun morePosts(userId: String, cursor: String): JSONObject {

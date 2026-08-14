@@ -35,6 +35,7 @@
       statFollowing: "يتابع",
       storiesTitle: "ستوريات",
       storiesEmpty: "لا توجد ستوريات عامة حالياً.",
+      dlStories: "تنزيل الكل",
       postsTitle: "المنشورات والريلز",
       morePosts: "المزيد",
       clipTitle: "رابط في الحافظة",
@@ -101,6 +102,7 @@
       statFollowing: "following",
       storiesTitle: "Stories",
       storiesEmpty: "No public stories right now.",
+      dlStories: "Download all",
       postsTitle: "Posts and Reels",
       morePosts: "More",
       clipTitle: "Link on clipboard",
@@ -426,6 +428,8 @@
       })
       .join("");
     empty.hidden = list.length > 0;
+    const dlAll = $("dlStoriesBtn");
+    if (dlAll) dlAll.hidden = list.length === 0;
   }
 
   function renderProfile(data) {

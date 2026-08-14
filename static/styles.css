@@ -446,6 +446,12 @@ html[dir="rtl"] .primary svg { transform: scaleX(-1); }
   margin-top: 16px;
   text-align: start;
 }
+.stories-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 .stories-row {
   display: flex;
   gap: 10px;
