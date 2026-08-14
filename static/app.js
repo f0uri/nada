@@ -130,6 +130,7 @@
       shared: "Got a link from Instagram",
       errUrl: "That doesn’t look like an Instagram link.",
       errMissing: "This post is unavailable, or the account is private.",
+      errBlocked: "Instagram blocked this profile lookup. Try again in a moment.",
       errRate: "Slow down for a moment, then try again.",
       errNet: "Couldn’t reach the server. Check your connection.",
       errClip: "Couldn’t read the clipboard.",
@@ -439,10 +440,7 @@
     $("profileHandle").textContent = data.username ? `\u200E@${data.username}` : "";
     $("profileBio").textContent = data.bio || t("noBio");
     $("profileAvatar").src = data.avatar ? mediaUrl(data.avatar) : "";
-    $("statPosts").textContent = compact(data.post_count);
-    $("statFollowers").textContent = compact(data.followers);
-    $("statFollowing").textContent = compact(data.following);
-    renderStories(data.stories);
+    $("statPosts").textContent = compact(datastatFollowing").textContent = compact(data.following);
     renderProfileGrid(data.posts || []);
     const more = $("morePosts");
     if (more) more.hidden = !data.cursor;
@@ -469,6 +467,9 @@
       const data = await apiPost("/api/profile", { username });
       renderProfile(data);
     } catch (err) {
+      profileState = null;
+      const card = $("profileCard");
+      if (card) card.hidden = true;
       toast(mapError(err.status, err.code));
     } finally {
       showLoader(false);
@@ -636,22 +637,6 @@
     lookupProfile(username);
   });
 
-  $("dlStoriesBtn")?.addEventListener("click", async () => {
-    const items = profileState?.stories || [];
-    if (!items.length) return;
-    for (const item of items) {
-      if (!item.file) continue;
-      const a = document.createElement("a");
-      a.href = mediaUrl(item.file, true, `${profileState.username || "story"}_${item.id || "item"}`);
-      a.download = "";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      await new Promise((r) => setTimeout(r, 400));
-    }
-    toast(t("saved"));
-  });
-
   $("dlAvatarBtn").addEventListener("click", () => {
     if (!profileState || !profileState.avatar) return;
     const a = document.createElement("a");
@@ -716,5 +701,14 @@
   else checkClipboard();
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") checkClipboard();
+  });
+})();
+visibilitychange", () => {
+    if (document.visibilityState === "visible") checkClipboard();
+  });
+})();
+ });
+})();
+== "visible") checkClipboard();
   });
 })();

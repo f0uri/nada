@@ -357,6 +357,37 @@ def hit_rate(ip: str, limit: int = 24, window: float = 60.0) -> None:
     _rate[ip] = bucket
 
 
+def decode_entities(value: str) -> str:
+    text = (
+        (value or "")
+        .replace("&amp;", "&")
+        .replace("&quot;", '"')
+        .replace("&#039;", "'")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&#x2022;", "•")
+        .replace("&#8226;", "•")
+        .replace("&bull;", "•")
+    )
+    text = re.sub(r"&#(\d+);", lambda m: chr(int(m.group(1))), text)
+    text = re.sub(r"&#x([0-9a-fA-F]+);", lambda m: chr(int(m.group(1), 16)), text)
+    return text
+
+
+def parse_og_stat(desc: str, label: str) -> int | None:
+    m = re.search(rf"([\d.,]+\s*[KMB]?)\s*{label}", desc or "", re.I)
+    if not m:
+        return None
+    raw = m.group(1).replace(",", "").replace(" ", "").upper()
+    n = re.match(r"^([\d.]+)([KMB])?$", raw)
+    if not n:
+        return None
+    base = float(n.group(1))
+    mul = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}.get(n.group(2) or "", 1)
+    return int(base * mul)
+
+
 def parse_username(raw: str) -> str:
     text = (raw or "").strip().lstrip("@")
     if "instagram." in text.lower() or "instagr.am" in text.lower():
