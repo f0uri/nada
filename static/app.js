@@ -661,15 +661,40 @@
       .join("");
   }
 
+  function clearProfile() {
+    profileState = null;
+    const card = $("profileCard");
+    if (card) card.hidden = true;
+    const name = $("profileName");
+    if (name) name.textContent = "";
+    const handle = $("profileHandle");
+    if (handle) handle.textContent = "";
+    const bio = $("profileBio");
+    if (bio) {
+      bio.textContent = "";
+      bio.classList.remove("empty");
+    }
+    const avatar = $("profileAvatar");
+    if (avatar) avatar.removeAttribute("src");
+    const posts = $("statPosts");
+    if (posts) posts.textContent = "—";
+    const followers = $("statFollowers");
+    if (followers) followers.textContent = "—";
+    const following = $("statFollowing");
+    if (following) following.textContent = "—";
+    renderStories([]);
+    renderProfileGrid([]);
+    const more = $("morePosts");
+    if (more) more.hidden = true;
+  }
+
   async function lookupProfile(username) {
     showLoader(true);
     try {
       const data = await apiPost("/api/profile", { username });
       renderProfile(data);
     } catch (err) {
-      profileState = null;
-      const card = $("profileCard");
-      if (card) card.hidden = true;
+      clearProfile();
       toast(mapError(err.status, err.code));
     } finally {
       showLoader(false);
@@ -695,7 +720,7 @@
     toast(t("saved"));
   }
 
-  function bindClear(inputEl, btnId) {
+  function bindClear(inputEl, btnId, onClear) {
     const btn = $(btnId);
     if (!inputEl || !btn) return () => {};
     const sync = () => {
@@ -705,6 +730,7 @@
     btn.addEventListener("click", () => {
       inputEl.value = "";
       sync();
+      if (typeof onClear === "function") onClear();
       inputEl.focus();
     });
     sync();
@@ -712,7 +738,7 @@
   }
 
   const syncUrlClear = bindClear(input, "urlClear");
-  bindClear($("username"), "userClear");
+  bindClear($("username"), "userClear", clearProfile);
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();

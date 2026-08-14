@@ -4,6 +4,8 @@
 
 تطبيق الأندرويد يُبنى تلقائياً عبر GitHub Actions (`gradle :app:assembleDebug`) ويظهر الـ APK في Releases.
 
+من إنستغرام: مشاركة → ندى، فيُجلب المنشور مباشرة.
+
 ## التشغيل
 
 ```bash
