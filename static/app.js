@@ -136,6 +136,10 @@
 
   const DEMO = "https://www.instagram.com/reel/Chunk8-jurw/";
   const $ = (id) => document.getElementById(id);
+  const on = (id, ev, fn) => {
+    const el = $(id);
+    if (el) el.addEventListener(ev, fn);
+  };
   const state = {
     lang: localStorage.getItem("nada-lang") || "ar",
     theme: localStorage.getItem("nada-theme") || "light",
@@ -329,6 +333,7 @@
   function renderLibrary() {
     const empty = $("libEmpty");
     const grid = $("libGrid");
+    if (!empty || !grid) return;
     empty.hidden = state.history.length > 0;
     grid.innerHTML = state.history
       .map((h) => {
@@ -435,11 +440,13 @@
     $("statFollowing").textContent = compact(data.following);
     renderStories(data.stories);
     renderProfileGrid(data.posts || []);
-    $("morePosts").hidden = !data.cursor;
+    const more = $("morePosts");
+    if (more) more.hidden = !data.cursor;
   }
 
   function renderProfileGrid(items) {
     const grid = $("profileGrid");
+    if (!grid) return;
     const list = Array.isArray(items) ? items : [];
     grid.innerHTML = list
       .map((item) => {
