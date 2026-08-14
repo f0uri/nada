@@ -268,15 +268,16 @@
       osc.type = type;
       osc.frequency.setValueAtTime(freq, t0);
       filter.type = "lowpass";
-      filter.frequency.setValueAtTime(2200, t0);
+      filter.frequency.setValueAtTime(5200, t0);
       gain.gain.setValueAtTime(0.0001, t0);
-      gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.01);
+      gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
+      gain.gain.exponentialRampToValueAtTime(vol * 0.45, t0 + dur * 0.35);
       gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
       osc.connect(filter);
       filter.connect(gain);
       gain.connect(c.destination);
       osc.start(t0);
-      osc.stop(t0 + dur + 0.03);
+      osc.stop(t0 + dur + 0.04);
     }
     function play(kind) {
       if (!state.sound) return;
@@ -287,16 +288,18 @@
         return;
       }
       if (kind === "go") {
-        beep(640, 0.075, "triangle", 0.046, 0);
-        beep(980, 0.05, "sine", 0.018, 0.02);
+        beep(520, 0.12, "square", 0.22, 0);
+        beep(780, 0.1, "triangle", 0.16, 0.012);
+        beep(1170, 0.07, "sine", 0.08, 0.028);
         return;
       }
       if (kind === "soft") {
-        beep(460, 0.045, "sine", 0.024, 0);
+        beep(500, 0.09, "triangle", 0.18, 0);
+        beep(760, 0.06, "sine", 0.08, 0.012);
         return;
       }
-      beep(560, 0.05, "triangle", 0.032, 0);
-      beep(840, 0.032, "sine", 0.012, 0.014);
+      beep(540, 0.1, "square", 0.2, 0);
+      beep(810, 0.08, "triangle", 0.12, 0.014);
     }
     return { unlock, play };
   })();
