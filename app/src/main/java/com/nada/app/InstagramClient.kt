@@ -14,6 +14,7 @@ import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import java.util.LinkedHashMap
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import javax.crypto.Mac
@@ -48,6 +49,11 @@ class InstagramClient {
 
     @Volatile
     private var lsd: String = ""
+    private val postCache = object : LinkedHashMap<String, JSONObject>(48, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, JSONObject>): Boolean {
+            return size > 48
+        }
+    }
 
     fun profile(raw: String): JSONObject {
         val username = parseUsername(raw)
@@ -79,6 +85,11 @@ class InstagramClient {
         val url = expandIfNeeded(rawUrl)
         parseStory(url)?.let { return resolveStory(it) }
         val shortcode = parseShortcode(url)
+        postCache[shortcode]?.let { cached ->
+            if ((cached.optJSONArray("media")?.length() ?: 0) > 0) {
+                return JSONObject(cached.toString())
+            }
+        }
         val item = enrichVideo(fetchMediaItem(shortcode), shortcode)
         val graph = item.has("edge_sidecar_to_children") ||
             item.has("edge_media_to_caption") ||
@@ -88,6 +99,7 @@ class InstagramClient {
         if (post.getJSONArray("media").length() == 0) {
             throw ApiException(404, "empty")
         }
+        postCache[shortcode] = JSONObject(post.toString())
         return post
     }
 
@@ -166,23 +178,22 @@ class InstagramClient {
     }
 
     private fun fetchMediaItem(shortcode: String): JSONObject {
-        val errors = mutableListOf<Int>()
-        repeat(2) { attempt ->
-            if (attempt == 1) csrf = ""
-            runCatching { webInfo(shortcode) }.onSuccess { return it }.onFailure { err ->
-                if (err is ApiException) errors += err.status
-                if (err is ApiException && err.status == 429) {
-                    Thread.sleep(1200)
-                }
-            }
+        var rate = false
+        runCatching { webInfo(shortcode) }.onSuccess { return it }.onFailure { err ->
+            if (err is ApiException && err.status == 429) rate = true
+        }
+        if (rate) {
+            Thread.sleep(700)
+            csrf = ""
+            runCatching { webInfo(shortcode) }.onSuccess { return it }
         }
         runCatching { polarisMedia(shortcode) }.getOrNull()?.let { return it }
         runCatching { graphShortcode(shortcode) }.getOrNull()?.let { return it }
         val pk = shortcodeToMediaId(shortcode)
         if (pk.isNotBlank()) {
-            mediaInfo(pk)?.let { return it }
+            mediaInfo(pk, retryWeb = false)?.let { return it }
         }
-        throw ApiException(if (429 in errors) 429 else 404, if (429 in errors) "rate" else "missing")
+        throw ApiException(if (rate) 429 else 404, if (rate) "rate" else "missing")
     }
 
     private fun polarisMedia(shortcode: String): JSONObject? {
@@ -761,7 +772,9 @@ class InstagramClient {
             )
             val items = data?.optJSONArray("items") ?: JSONArray()
             for (i in 0 until items.length()) {
-                packGridItem(items.getJSONObject(i))?.let { posts.put(it) }
+                val node = items.getJSONObject(i)
+                rememberFeedPost(node)
+                packGridItem(node)?.let { posts.put(it) }
             }
             if (data?.optBoolean("more_available") == true) {
                 next = data.optString("next_max_id")
@@ -771,12 +784,22 @@ class InstagramClient {
             val edges = user.optJSONObject("edge_owner_to_timeline_media")?.optJSONArray("edges") ?: JSONArray()
             for (i in 0 until edges.length()) {
                 val node = edges.optJSONObject(i)?.optJSONObject("node") ?: edges.optJSONObject(i) ?: continue
+                rememberFeedPost(node)
                 packGridItem(node)?.let { posts.put(it) }
             }
             val page = user.optJSONObject("edge_owner_to_timeline_media")?.optJSONObject("page_info")
             if (page?.optBoolean("has_next_page") == true) next = page.optString("end_cursor")
         }
         return posts to next
+    }
+
+    private fun rememberFeedPost(node: JSONObject) {
+        val shortcode = node.optString("code").ifBlank { node.optString("shortcode") }
+        if (shortcode.isBlank()) return
+        val packed = runCatching { packPost(node, shortcode) }.getOrNull() ?: return
+        if ((packed.optJSONArray("media")?.length() ?: 0) > 0) {
+            postCache[shortcode] = packed
+        }
     }
 
     private fun packGridItem(node: JSONObject): JSONObject? {
@@ -1145,7 +1168,7 @@ class InstagramClient {
         return out.reverse().toString()
     }
 
-    private fun mediaInfo(mediaId: String): JSONObject? {
+    private fun mediaInfo(mediaId: String, retryWeb: Boolean = true): JSONObject? {
         val mid = mediaId.filter { it.isDigit() }
         if (mid.isBlank()) return null
         for (url in listOf(
@@ -1157,6 +1180,7 @@ class InstagramClient {
             val first = items?.optJSONObject(0)
             if (first != null) return first
         }
+        if (!retryWeb) return null
         val code = mediaIdToShortcode(mid)
         if (code.isBlank()) return null
         return runCatching { webInfo(code) }.getOrNull()
@@ -1266,19 +1290,9 @@ class InstagramClient {
             node.optBoolean("is_video") ||
             node.optString("video_dash_manifest").isNotBlank()
         if (!isVideo) return
-        val pages = listOf(
-            "https://www.instagram.com/reel/$shortcode/embed/",
-            "https://www.instagram.com/reel/$shortcode/",
-            "https://www.instagram.com/p/$shortcode/embed/",
-        )
-        for (page in pages) {
-            val html = runCatching { fetchHtml(page) }.getOrDefault("")
-            val found = extractVideoFromHtml(html)
-            if (!found.isNullOrBlank()) {
-                node.put("video_url", found)
-                if (bestVideo(node) != null) return
-            }
-        }
+        val html = runCatching { fetchHtml("https://www.instagram.com/reel/$shortcode/embed/") }.getOrDefault("")
+        val found = extractVideoFromHtml(html)
+        if (!found.isNullOrBlank()) node.put("video_url", found)
     }
 
     private fun videosFromDash(manifest: String): List<JSONObject> {

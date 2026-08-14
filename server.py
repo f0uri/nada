@@ -93,6 +93,7 @@ class InstagramSession:
         self._csrf = ""
         self._lsd = ""
         self._csrf_at = 0.0
+        self._post_cache: dict[str, dict[str, Any]] = {}
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(25.0, connect=10.0),
             follow_redirects=True,
@@ -573,22 +574,43 @@ class InstagramSession:
                 f"https://www.instagram.com/{user.get('username') or ''}/",
             )
             for node in (data or {}).get("items") or []:
-                packed = pack_grid_item(node)
-                if packed:
-                    posts.append(packed)
+                if isinstance(node, dict):
+                    self.remember_post(node)
+                    packed = pack_grid_item(node)
+                    if packed:
+                        posts.append(packed)
             if (data or {}).get("more_available"):
                 next_cursor = str((data or {}).get("next_max_id") or "")
         if not posts:
             edges = ((user.get("edge_owner_to_timeline_media") or {}).get("edges")) or []
             for edge in edges:
                 node = (edge or {}).get("node") or edge
-                packed = pack_grid_item(node)
-                if packed:
-                    posts.append(packed)
+                if isinstance(node, dict):
+                    self.remember_post(node)
+                    packed = pack_grid_item(node)
+                    if packed:
+                        posts.append(packed)
             page = (user.get("edge_owner_to_timeline_media") or {}).get("page_info") or {}
             if page.get("has_next_page"):
                 next_cursor = page.get("end_cursor") or ""
         return posts, next_cursor
+
+    def remember_post(self, node: dict[str, Any]) -> None:
+        shortcode = str(node.get("code") or node.get("shortcode") or "")
+        if not shortcode:
+            return
+        try:
+            packed = pack_post(node, shortcode)
+        except Exception:
+            return
+        if packed.get("media"):
+            self._post_cache[shortcode] = packed
+            while len(self._post_cache) > 48:
+                self._post_cache.pop(next(iter(self._post_cache)))
+
+    def cached_post(self, shortcode: str) -> dict[str, Any] | None:
+        found = self._post_cache.get(shortcode)
+        return dict(found) if found else None
 
 
 ig = InstagramSession()

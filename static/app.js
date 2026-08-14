@@ -258,26 +258,50 @@
       const c = audio();
       if (c && c.state === "suspended") c.resume().catch(() => {});
     }
-    function beep(freq, dur, type, vol, delay) {
+    function tock(kind) {
       const c = audio();
       if (!c || c.state !== "running") return;
-      const t0 = c.currentTime + (delay || 0);
+      const t0 = c.currentTime;
+      const go = kind === "go";
+      const soft = kind === "soft";
+      const jitter = (Math.random() - 0.5) * 70;
+      const clickHz = (go ? 1520 : soft ? 2280 : 1880) + jitter;
+      const noiseMs = go ? 0.016 : 0.012;
+      const n = Math.max(32, Math.floor(noiseMs * c.sampleRate));
+      const buf = c.createBuffer(1, n, c.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < n; i += 1) {
+        const env = 1 - i / n;
+        data[i] = (Math.random() * 2 - 1) * env * env;
+      }
+      const noise = c.createBufferSource();
+      noise.buffer = buf;
+      const hp = c.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.setValueAtTime(go ? 700 : 1200, t0);
+      const bp = c.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.setValueAtTime(clickHz, t0);
+      bp.Q.setValueAtTime(go ? 0.7 : 1.1, t0);
+      const ng = c.createGain();
+      ng.gain.setValueAtTime(go ? 0.42 : soft ? 0.26 : 0.34, t0);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t0 + (go ? 0.05 : 0.036));
+      noise.connect(hp);
+      hp.connect(bp);
+      bp.connect(ng);
+      ng.connect(c.destination);
+      noise.start(t0);
       const osc = c.createOscillator();
-      const gain = c.createGain();
-      const filter = c.createBiquadFilter();
-      osc.type = type;
-      osc.frequency.setValueAtTime(freq, t0);
-      filter.type = "lowpass";
-      filter.frequency.setValueAtTime(5200, t0);
-      gain.gain.setValueAtTime(0.0001, t0);
-      gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
-      gain.gain.exponentialRampToValueAtTime(vol * 0.45, t0 + dur * 0.35);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(c.destination);
+      const og = c.createGain();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(clickHz, t0);
+      osc.frequency.exponentialRampToValueAtTime(clickHz * 0.68, t0 + 0.028);
+      og.gain.setValueAtTime(go ? 0.2 : soft ? 0.11 : 0.15, t0);
+      og.gain.exponentialRampToValueAtTime(0.0001, t0 + (go ? 0.055 : 0.04));
+      osc.connect(og);
+      og.connect(c.destination);
       osc.start(t0);
-      osc.stop(t0 + dur + 0.04);
+      osc.stop(t0 + 0.07);
     }
     function play(kind) {
       if (!state.sound) return;
@@ -287,19 +311,7 @@
         c.resume().then(() => play(kind)).catch(() => {});
         return;
       }
-      if (kind === "go") {
-        beep(520, 0.12, "square", 0.22, 0);
-        beep(780, 0.1, "triangle", 0.16, 0.012);
-        beep(1170, 0.07, "sine", 0.08, 0.028);
-        return;
-      }
-      if (kind === "soft") {
-        beep(500, 0.09, "triangle", 0.18, 0);
-        beep(760, 0.06, "sine", 0.08, 0.012);
-        return;
-      }
-      beep(540, 0.1, "square", 0.2, 0);
-      beep(810, 0.08, "triangle", 0.12, 0.014);
+      tock(kind);
     }
     return { unlock, play };
   })();
@@ -583,7 +595,7 @@
 
   async function apiPost(path, payload) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 28000);
+    const timer = setTimeout(() => ctrl.abort(), 40000);
     try {
       const res = await fetch(path, {
         method: "POST",
@@ -724,7 +736,7 @@
         const src = item.preview ? mediaUrl(item.preview) : "";
         const code = safeCode(item.shortcode);
         if (!code) return "";
-        return `<button class="grid-item" type="button" data-code="${escapeHtml(code)}">
+        return `<button class="grid-item" type="button" data-code="${escapeHtml(code)}" data-kind="${escapeHtml(item.kind || "photo")}">
           ${src ? `<img alt="" src="${escapeHtml(src)}" />` : ""}
           <i>${kindLabel(item.kind || "photo")}</i>
         </button>`;
@@ -896,7 +908,9 @@
     const btn = e.target.closest("[data-code]");
     const code = safeCode(btn && btn.dataset.code);
     if (!code) return;
-    resolve(`https://www.instagram.com/p/${code}/`);
+    const kind = String((btn && btn.dataset.kind) || "").toLowerCase();
+    const path = kind === "reel" || kind === "video" ? "reel" : "p";
+    resolve(`https://www.instagram.com/${path}/${code}/`);
   });
 
   $("morePosts").addEventListener("click", async () => {
