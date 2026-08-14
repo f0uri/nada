@@ -45,6 +45,8 @@
       dlStories: "تنزيل الكل",
       postsTitle: "المنشورات والريلز",
       morePosts: "المزيد",
+      soundOn: "صوت الأزرار",
+      soundOff: "كتم صوت الأزرار",
       clipTitle: "رابط في الحافظة",
       clipGo: "جلب",
       a1t: "للمنشورات العامة",
@@ -124,6 +126,8 @@
       dlStories: "Download all",
       postsTitle: "Posts and Reels",
       morePosts: "More",
+      soundOn: "Button sounds on",
+      soundOff: "Button sounds off",
       clipTitle: "Link on clipboard",
       clipGo: "Fetch",
       a1t: "Public posts",
@@ -169,6 +173,7 @@
   const state = {
     lang: localStorage.getItem("nada-lang") || "ar",
     theme: localStorage.getItem("nada-theme") || "light",
+    sound: localStorage.getItem("nada-sound") !== "0",
     post: null,
     index: 0,
     history: loadHistory(),
@@ -216,6 +221,7 @@
       el.setAttribute("aria-label", t(el.dataset.i18nAria));
     });
     $("themeBtn").textContent = state.theme === "dark" ? "☀" : "☾";
+    applySound();
     if (state.post) renderResult(state.post, false);
     if (profileState) {
       paintBio(profileState);
@@ -232,6 +238,68 @@
     if (meta) meta.setAttribute("content", color);
     $("themeBtn").textContent = state.theme === "dark" ? "☀" : "☾";
   }
+
+  function applySound() {
+    const btn = $("soundBtn");
+    if (!btn) return;
+    btn.textContent = state.sound ? "♪" : "×";
+    btn.setAttribute("aria-label", t(state.sound ? "soundOn" : "soundOff"));
+  }
+
+  const Sound = (() => {
+    let ctx = null;
+    function audio() {
+      const C = window.AudioContext || window.webkitAudioContext;
+      if (!C) return null;
+      if (!ctx) ctx = new C();
+      return ctx;
+    }
+    function unlock() {
+      const c = audio();
+      if (c && c.state === "suspended") c.resume().catch(() => {});
+    }
+    function beep(freq, dur, type, vol, delay) {
+      const c = audio();
+      if (!c || c.state !== "running") return;
+      const t0 = c.currentTime + (delay || 0);
+      const osc = c.createOscillator();
+      const gain = c.createGain();
+      const filter = c.createBiquadFilter();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t0);
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(2200, t0);
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(c.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.03);
+    }
+    function play(kind) {
+      if (!state.sound) return;
+      const c = audio();
+      if (!c) return;
+      if (c.state === "suspended") {
+        c.resume().then(() => play(kind)).catch(() => {});
+        return;
+      }
+      if (kind === "go") {
+        beep(640, 0.075, "triangle", 0.046, 0);
+        beep(980, 0.05, "sine", 0.018, 0.02);
+        return;
+      }
+      if (kind === "soft") {
+        beep(460, 0.045, "sine", 0.024, 0);
+        return;
+      }
+      beep(560, 0.05, "triangle", 0.032, 0);
+      beep(840, 0.032, "sine", 0.012, 0.014);
+    }
+    return { unlock, play };
+  })();
 
   function extractIgUrl(text) {
     const src = String(text || "");
@@ -783,6 +851,31 @@
     localStorage.setItem("nada-theme", state.theme);
     applyTheme();
   });
+
+  const soundBtn = $("soundBtn");
+  if (soundBtn) {
+    soundBtn.addEventListener("click", () => {
+      state.sound = !state.sound;
+      localStorage.setItem("nada-sound", state.sound ? "1" : "0");
+      applySound();
+      if (state.sound) Sound.play("tap");
+    });
+  }
+  document.addEventListener("pointerdown", () => Sound.unlock(), { once: true, capture: true });
+  document.addEventListener("click", (e) => {
+    if (!e.isTrusted || !state.sound) return;
+    const btn = e.target.closest("button");
+    if (!btn || btn.disabled || btn.hidden || btn.id === "soundBtn") return;
+    if (btn.classList.contains("primary") || btn.id === "go" || btn.id === "dlBtn" || btn.id === "profileGo") {
+      Sound.play("go");
+      return;
+    }
+    if (btn.classList.contains("tab") || btn.classList.contains("field-clear") || btn.classList.contains("lib-del")) {
+      Sound.play("soft");
+      return;
+    }
+    Sound.play("tap");
+  }, true);
 
   $("clipGo").addEventListener("click", () => {
     if (!state.clip) return;

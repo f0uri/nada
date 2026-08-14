@@ -219,6 +219,7 @@ html[lang="en"] {
 }
 
 .topbar, .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.top-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 .page-head { flex-direction: column; gap: 2px; margin: 10px 2px 18px; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .mark {
