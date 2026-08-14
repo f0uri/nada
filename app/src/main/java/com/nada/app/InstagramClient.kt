@@ -378,7 +378,11 @@ class InstagramClient {
             val items = payload.optJSONObject("data")
                 ?.optJSONObject("xdt_api__v1__media__shortcode__web_info")
                 ?.optJSONArray("items") ?: JSONArray()
-            if (items.length
+            if (items.length() == 0) throw ApiException(404, "missing")
+            return items.getJSONObject(0)
+        }
+    }
+
     private fun packPost(item: JSONObject, shortcode: String): JSONObject {
         val user = item.optJSONObject("user") ?: JSONObject()
         val captionObj = item.opt("caption")
@@ -1468,10 +1472,6 @@ private fun String.hexToBytes(): ByteArray {
     val clean = URLDecoder.decode(this, "UTF-8")
     require(clean.length % 2 == 0)
     return ByteArray(clean.length / 2) { i ->
-        clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()
-    }
-}
-teArray(clean.length / 2) { i ->
         clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()
     }
 }
