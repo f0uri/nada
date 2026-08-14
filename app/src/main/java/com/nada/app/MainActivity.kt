@@ -53,7 +53,7 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false)
 
         web.overScrollMode = View.OVER_SCROLL_NEVER
-        web.isDefaultFocusHighlightEnabled = false
+        web.setDefaultFocusHighlightEnabled(false)
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
