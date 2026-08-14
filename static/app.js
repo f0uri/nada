@@ -9,7 +9,6 @@
       paste: "لصق",
       clear: "مسح",
       fetch: "جلب المنشور",
-      demo: "جرّب مثالاً عاماً",
       publicOnly: "المنشورات العامة فقط",
       emptyTitle: "مساحة هادئة للحفظ",
       emptyBody: "ريلز، صور، أو ألبومات. نعرض المعاينة أولاً، ثم تحفظ ما تشاء.",
@@ -90,7 +89,6 @@
       paste: "Paste",
       clear: "Clear",
       fetch: "Fetch post",
-      demo: "Try a public example",
       publicOnly: "Public posts only",
       emptyTitle: "A quiet place to save",
       emptyBody: "Reels, photos, or carousels. Preview first, then keep what you want.",
@@ -164,7 +162,6 @@
     },
   };
 
-  const DEMO = "https://www.instagram.com/reel/Chunk8-jurw/";
   const $ = (id) => document.getElementById(id);
   const on = (id, ev, fn) => {
     const el = $(id);
@@ -845,12 +842,6 @@
     } catch {
       toast(t("errClip"));
     }
-  });
-
-  $("demoBtn").addEventListener("click", () => {
-    input.value = DEMO;
-    syncUrlClear();
-    resolve(DEMO);
   });
 
   $("backBtn").addEventListener("click", () => showView("home"));
