@@ -13,9 +13,11 @@ object IgLinks {
         """https?://(?:www\.)?l\.instagram\.com/[^\s<>"']+""",
         RegexOption.IGNORE_CASE,
     )
+    private val CODE_RE = Regex("^[A-Za-z0-9_-]{5,32}$")
+    private val SKIP_SEGMENTS = setOf("p", "tv", "reel", "reels", "videos", "share", "stories", "embed")
 
     fun fromText(raw: String): String {
-        val text = raw.trim()
+        val text = stripMarks(raw)
         if (text.isBlank()) return ""
         L_IG.find(text)?.value?.let { link ->
             val nested = runCatching {
@@ -32,7 +34,7 @@ object IgLinks {
     }
 
     fun tidy(raw: String): String {
-        val found = raw.trim().trimEnd(')', ']', '"', '\'', '>', ',', '،', '.', '…')
+        val found = stripMarks(raw).trimEnd(')', ']', '"', '\'', '>', ',', '،', '.', '…')
         if (found.isBlank()) return ""
         return try {
             val uri = Uri.parse(found)
@@ -93,5 +95,30 @@ object IgLinks {
             path.contains("/share") ||
             path.startsWith("/s/") ||
             path.contains("/share/")
+    }
+
+    fun shortcodeFrom(url: String): String? {
+        val path = runCatching { Uri.parse(url).path.orEmpty() }.getOrDefault("")
+        val parts = path.split('/').filter { it.isNotEmpty() }
+        if (parts.any { it.equals("share", ignoreCase = true) || it.equals("stories", ignoreCase = true) }) {
+            return null
+        }
+        val typeAt = parts.indexOfFirst { it.lowercase() in setOf("p", "tv", "reel", "reels") }
+        if (typeAt < 0) return null
+        val code = parts.drop(typeAt + 1).firstOrNull { it.lowercase() !in SKIP_SEGMENTS } ?: return null
+        return if (CODE_RE.matches(code)) code else null
+    }
+
+    private fun stripMarks(raw: String): String {
+        return raw.trim()
+            .replace("\u200e", "")
+            .replace("\u200f", "")
+            .replace("\u202a", "")
+            .replace("\u202b", "")
+            .replace("\u202c", "")
+            .replace("\u2066", "")
+            .replace("\u2067", "")
+            .replace("\u2068", "")
+            .replace("\u2069", "")
     }
 }

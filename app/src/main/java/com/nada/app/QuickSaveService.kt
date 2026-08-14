@@ -74,9 +74,8 @@ class QuickSaveService : Service() {
         goForeground(getString(R.string.save_working))
         try {
             val batch = instagram.prepareSave(url)
-            val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
             for (file in batch.files) {
-                enqueue(manager, file)
+                writeRemote(file)
             }
             val who = "@${batch.username}"
             val detail = getString(R.string.save_files, batch.files.size)
@@ -88,36 +87,13 @@ class QuickSaveService : Service() {
         }
     }
 
-    private fun enqueue(manager: DownloadManager, file: InstagramClient.SaveFile) {
-        val request = DownloadManager.Request(Uri.parse(file.url))
-            .setMimeType(file.mime)
-            .setTitle(file.name)
-            .setDescription(getString(R.string.app_name))
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .addRequestHeader("User-Agent", UA)
-            .addRequestHeader("Referer", "https://www.instagram.com/")
-            .addRequestHeader("Accept", "*/*")
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(true)
-        val canPublic = Build.VERSION.SDK_INT >= 29 ||
-            ContextCompat.checkSelfPermission(this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (canPublic) {
-            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, file.name)
-        } else {
-            request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, file.name)
-        }
+    private fun writeRemote(file: InstagramClient.SaveFile) {
+        val stream = instagram.pullFile(file.url)
         try {
-            manager.enqueue(request)
-        } catch (_: SecurityException) {
-            val fallback = DownloadManager.Request(Uri.parse(file.url))
-                .setMimeType(file.mime)
-                .setTitle(file.name)
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                .addRequestHeader("User-Agent", UA)
-                .addRequestHeader("Referer", "https://www.instagram.com/")
-                .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, file.name)
-            manager.enqueue(fallback)
+            val body = stream.body ?: error("empty")
+            storeBytes(body.byteStream(), file.name, file.mime)
+        } finally {
+            stream.close()
         }
     }
 
@@ -137,27 +113,36 @@ class QuickSaveService : Service() {
             }
             val name = "instagram_${System.currentTimeMillis()}.$ext"
             resolver.openInputStream(uri)?.use { input ->
-                if (Build.VERSION.SDK_INT >= 29) {
-                    val values = ContentValues().apply {
-                        put(MediaStore.Downloads.DISPLAY_NAME, name)
-                        put(MediaStore.Downloads.MIME_TYPE, mime)
-                        put(MediaStore.Downloads.IS_PENDING, 1)
-                    }
-                    val out = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                        ?: error("store")
-                    resolver.openOutputStream(out)?.use { input.copyTo(it) } ?: error("out")
-                    values.clear()
-                    values.put(MediaStore.Downloads.IS_PENDING, 0)
-                    resolver.update(out, values, null, null)
-                } else {
-                    val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                    dir.mkdirs()
-                    File(dir, name).outputStream().use { input.copyTo(it) }
-                }
+                storeBytes(input, name, mime)
             } ?: error("in")
             notifyDone(name, error = false)
         } catch (_: Exception) {
             notifyDone(getString(R.string.save_fail_net), error = true)
+        }
+    }
+
+    private fun storeBytes(input: java.io.InputStream, name: String, mime: String) {
+        if (Build.VERSION.SDK_INT >= 29) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, name)
+                put(MediaStore.Downloads.MIME_TYPE, mime)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val out = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: error("store")
+            try {
+                contentResolver.openOutputStream(out)?.use { input.copyTo(it) } ?: error("out")
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                contentResolver.update(out, values, null, null)
+            } catch (err: Exception) {
+                runCatching { contentResolver.delete(out, null, null) }
+                throw err
+            }
+        } else {
+            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            dir.mkdirs()
+            File(dir, name).outputStream().use { input.copyTo(it) }
         }
     }
 
@@ -222,8 +207,6 @@ class QuickSaveService : Service() {
         private const val CHANNEL_ID = "nada_save"
         private const val WORK_ID = 27
         private const val DONE_ID = 28
-        private const val UA =
-            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1"
 
         fun start(context: Context, url: String) {
             val intent = Intent(context, QuickSaveService::class.java).putExtra(EXTRA_URL, url)

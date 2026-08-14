@@ -52,7 +52,8 @@ STORY_RE = re.compile(
     r"(?:highlights/(\d+)|([A-Za-z0-9._]+)/(\d+)|([A-Za-z0-9._]+)/?)",
     re.I,
 )
-SHORT_RE = re.compile(r"^[A-Za-z0-9_-]{5,20}$")
+SHORT_RE = re.compile(r"^[A-Za-z0-9_-]{5,32}$")
+SKIP_SEGMENTS = {"p", "tv", "reel", "reels", "videos", "share", "stories", "embed"}
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
 ALLOWED_HOST_PARTS = (
@@ -852,13 +853,30 @@ def pack_grid_item(node: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def shortcode_from(url: str) -> str | None:
+    path = (urlparse(url).path or "")
+    parts = [p for p in path.split("/") if p]
+    if any(p.lower() in {"share", "stories"} for p in parts):
+        return None
+    try:
+        type_at = next(i for i, p in enumerate(parts) if p.lower() in {"p", "tv", "reel", "reels"})
+    except StopIteration:
+        return None
+    for part in parts[type_at + 1 :]:
+        if part.lower() in SKIP_SEGMENTS:
+            continue
+        if SHORT_RE.fullmatch(part):
+            return part
+    return None
+
+
 def parse_shortcode(raw: str) -> str:
     text = (raw or "").strip()
     if SHORT_RE.fullmatch(text):
         return text
-    m = URL_RE.search(text)
-    if m:
-        return m.group(1)
+    found = shortcode_from(text) or shortcode_from(tidy_ig_url(text))
+    if found:
+        return found
     raise HTTPException(400, "url")
 
 
@@ -909,7 +927,15 @@ def best_image(node: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def best_video(node: dict[str, Any]) -> dict[str, Any] | None:
-    vers = [v for v in (node.get("video_versions") or []) if v.get("url") and host_ok(v["url"])]
+    raw_vers = node.get("video_versions")
+    vers = [v for v in (raw_vers or []) if isinstance(v, dict) and v.get("url") and host_ok(v["url"])]
+    direct = node.get("video_url") or node.get("playback_url") or ""
+    if isinstance(direct, str) and direct and host_ok(direct):
+        vers.append({
+            "url": direct,
+            "width": node.get("original_width") or ((node.get("dimensions") or {}).get("width")),
+            "height": node.get("original_height") or ((node.get("dimensions") or {}).get("height")),
+        })
     if not vers:
         return None
     vers.sort(key=lambda v: int(v.get("width") or 0) * int(v.get("height") or 0), reverse=True)
@@ -1077,33 +1103,44 @@ def needs_expand(url: str) -> bool:
 
 
 def looks_like_post(url: str) -> bool:
-    return bool(URL_RE.search(url) or STORY_RE.search(url))
+    return bool(shortcode_from(url) or STORY_RE.search(url))
 
 
 async def expand_share(raw: str) -> str:
     start = tidy_ig_url(raw) or (raw or "").strip()
-    if not needs_expand(start):
+    if not needs_expand(start) and shortcode_from(start):
         return start
     try:
+        head = await ig.client.get(start, follow_redirects=False)
+        loc = head.headers.get("location") or ""
+        if loc:
+            nxt = tidy_ig_url(loc) or loc
+            if shortcode_from(nxt):
+                return nxt if nxt.startswith("http") else start
         r = await ig.client.get(
             start,
             headers={"Accept": "text/html,application/xhtml+xml"},
             follow_redirects=True,
         )
         final = tidy_ig_url(str(r.url))
-        if looks_like_post(final):
+        if shortcode_from(final):
             return final
         html = r.text or ""
         og = re.search(r'property="og:url" content="([^"]+)"', html)
         if og:
             from_og = tidy_ig_url(og.group(1))
-            if looks_like_post(from_og):
+            if shortcode_from(from_og):
                 return from_og
-        found = URL_RE.search(html)
-        if found:
-            from_html = tidy_ig_url(found.group(0))
-            if looks_like_post(from_html):
-                return from_html
+        for match in re.finditer(
+            r"https?://(?:www\.)?instagram\.com/(?:[A-Za-z0-9._]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]{5,32})",
+            html,
+            re.I,
+        ):
+            if "/share/" in match.group(0).lower():
+                continue
+            if match.group(1).lower() in SKIP_SEGMENTS:
+                continue
+            return f"https://www.instagram.com/reel/{match.group(1)}/"
         return final or start
     except Exception:
         return start

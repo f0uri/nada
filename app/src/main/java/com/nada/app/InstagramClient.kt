@@ -76,8 +76,12 @@ class InstagramClient {
         val url = expandIfNeeded(rawUrl)
         parseStory(url)?.let { return resolveStory(it) }
         val shortcode = parseShortcode(url)
-        val item = webInfo(shortcode)
-        val post = packPost(item, shortcode)
+        val item = fetchMediaItem(shortcode)
+        val graph = item.has("edge_sidecar_to_children") ||
+            item.has("edge_media_to_caption") ||
+            item.optString("__typename").contains("Graph") ||
+            item.optString("__typename").startsWith("XDT")
+        val post = if (graph) packGraphPost(item, shortcode) else packPost(item, shortcode)
         if (post.getJSONArray("media").length() == 0) {
             throw ApiException(404, "empty")
         }
@@ -85,31 +89,131 @@ class InstagramClient {
     }
 
     private fun expandIfNeeded(raw: String): String {
-        val start = IgLinks.fromText(raw).ifBlank { raw.trim() }
-        if (!IgLinks.needsExpand(start)) return start
-        return runCatching {
-            val request = Request.Builder()
-                .url(start)
-                .header("User-Agent", UA)
-                .header("Accept-Language", "ar,en-US;q=0.8,en;q=0.6")
-                .header("Accept", "text/html,application/xhtml+xml")
-                .build()
-            client.newCall(request).execute().use { response ->
-                val finalUrl = IgLinks.fromText(response.request.url.toString())
-                if (looksLikePost(finalUrl)) return@use finalUrl
-                val html = response.body?.string().orEmpty()
-                val og = Regex("""property="og:url" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
-                val fromOg = IgLinks.fromText(og)
-                if (looksLikePost(fromOg)) return@use fromOg
-                val fromHtml = IgLinks.fromText(html)
-                if (looksLikePost(fromHtml)) return@use fromHtml
-                finalUrl.ifBlank { start }
+        var current = IgLinks.fromText(raw).ifBlank { raw.trim() }
+        if (current.startsWith("instagram://")) {
+            val id = Regex("""[?&]id=(\d+)""").find(current)?.groupValues?.get(1).orEmpty()
+            if (id.isNotBlank()) {
+                val code = mediaIdToShortcode(id)
+                if (code.isNotBlank()) return "https://www.instagram.com/reel/$code/"
             }
-        }.getOrDefault(start)
+        }
+        if (!IgLinks.needsExpand(current) && IgLinks.shortcodeFrom(current) != null) return current
+        val seen = mutableSetOf<String>()
+        repeat(6) {
+            if (!seen.add(current)) return current
+            val redirected = peekRedirect(current)
+            if (!redirected.isNullOrBlank()) {
+                val next = IgLinks.fromText(redirected).ifBlank { IgLinks.tidy(redirected) }
+                if (IgLinks.shortcodeFrom(next) != null) return next
+                if (next.isNotBlank()) {
+                    current = next
+                    return@repeat
+                }
+            }
+            val html = runCatching { fetchHtml(current) }.getOrDefault("")
+            val found = extractPostUrlFromHtml(html)
+            if (!found.isNullOrBlank()) return found
+            return current
+        }
+        return current
     }
 
-    private fun looksLikePost(url: String): Boolean {
-        return URL_RE.containsMatchIn(url) || STORY_RE.containsMatchIn(url)
+    private fun peekRedirect(url: String): String? {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", UA)
+            .header("Accept-Language", "ar,en-US;q=0.8,en;q=0.6")
+            .build()
+        return mediaClient.newCall(request).execute().use { response ->
+            if (!response.isRedirect) return@use null
+            val loc = response.header("Location").orEmpty()
+            if (loc.isBlank()) return@use null
+            if (loc.startsWith("http")) loc else {
+                url.toHttpUrlOrNull()?.resolve(loc)?.toString() ?: loc
+            }
+        }
+    }
+
+    private fun fetchHtml(url: String): String {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", UA)
+            .header("Accept-Language", "ar,en-US;q=0.8,en;q=0.6")
+            .header("Accept", "text/html,application/xhtml+xml")
+            .build()
+        return client.newCall(request).execute().use { it.body?.string().orEmpty() }
+    }
+
+    private fun extractPostUrlFromHtml(html: String): String? {
+        val og = Regex("""property="og:url" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
+        IgLinks.shortcodeFrom(IgLinks.fromText(og))?.let { return "https://www.instagram.com/reel/$it/" }
+        val canon = Regex("""rel="canonical" href="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
+        IgLinks.shortcodeFrom(IgLinks.fromText(canon))?.let { return "https://www.instagram.com/reel/$it/" }
+        val found = Regex(
+            """https?://(?:www\.)?instagram\.com/(?:[A-Za-z0-9._]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]{5,32})""",
+            RegexOption.IGNORE_CASE,
+        ).findAll(html)
+        for (match in found) {
+            if (match.value.contains("/share/", ignoreCase = true)) continue
+            val code = match.groupValues[1]
+            if (code.lowercase() in setOf("videos", "embed", "share")) continue
+            return "https://www.instagram.com/reel/$code/"
+        }
+        return null
+    }
+
+    private fun fetchMediaItem(shortcode: String): JSONObject {
+        val errors = mutableListOf<Int>()
+        repeat(2) { attempt ->
+            if (attempt == 1) csrf = ""
+            runCatching { webInfo(shortcode) }.onSuccess { return it }.onFailure { err ->
+                if (err is ApiException) errors += err.status
+                if (err is ApiException && err.status == 429) {
+                    Thread.sleep(1200)
+                }
+            }
+        }
+        runCatching { graphShortcode(shortcode) }.getOrNull()?.let { return it }
+        val pk = shortcodeToMediaId(shortcode)
+        if (pk.isNotBlank()) {
+            mediaInfo(pk)?.let { return it }
+        }
+        throw ApiException(if (429 in errors) 429 else 404, if (429 in errors) "rate" else "missing")
+    }
+
+    private fun graphShortcode(shortcode: String): JSONObject? {
+        val token = runCatching { ensureCsrf() }.getOrNull() ?: return null
+        val variables = JSONObject().put("shortcode", shortcode).toString()
+        val body = FormBody.Builder()
+            .add("variables", variables)
+            .add("doc_id", GRAPH_SHORTCODE_DOC)
+            .build()
+        val request = Request.Builder()
+            .url("https://www.instagram.com/api/graphql")
+            .header("User-Agent", UA)
+            .header("x-ig-app-id", APP_ID)
+            .header("x-asbd-id", "129477")
+            .header("x-csrftoken", token)
+            .header("origin", "https://www.instagram.com")
+            .header("referer", "https://www.instagram.com/reel/$shortcode/")
+            .post(body)
+            .build()
+        return client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) return@use null
+            val data = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" }).optJSONObject("data")
+            data?.optJSONObject("xdt_shortcode_media") ?: data?.optJSONObject("shortcode_media")
+        }
+    }
+
+    private fun shortcodeToMediaId(code: String): String {
+        var value = BigInteger.ZERO
+        val sixtyFour = BigInteger.valueOf(64)
+        for (ch in code) {
+            val idx = ALPHABET.indexOf(ch)
+            if (idx < 0) return ""
+            value = value * sixtyFour + BigInteger.valueOf(idx.toLong())
+        }
+        return if (value > BigInteger.ZERO) value.toString() else ""
     }
 
     fun prepareSave(rawUrl: String): SaveBatch {
@@ -239,6 +343,58 @@ class InstagramClient {
             .put("source", "https://www.instagram.com/${if (kind == "reel") "reel" else "p"}/$code/")
     }
 
+    private fun packGraphPost(item: JSONObject, shortcode: String): JSONObject {
+        val ownerNode = item.optJSONObject("owner") ?: item.optJSONObject("user") ?: JSONObject()
+        val caption = item.optJSONObject("edge_media_to_caption")
+            ?.optJSONArray("edges")
+            ?.optJSONObject(0)
+            ?.optJSONObject("node")
+            ?.optString("text")
+            .orEmpty()
+            .ifBlank {
+                val cap = item.opt("caption")
+                when (cap) {
+                    is JSONObject -> cap.optString("text")
+                    is String -> cap
+                    else -> ""
+                }
+            }
+        val children = item.optJSONObject("edge_sidecar_to_children")?.optJSONArray("edges")
+        val nodes = JSONArray()
+        if (children != null && children.length() > 0) {
+            for (i in 0 until children.length()) {
+                children.optJSONObject(i)?.optJSONObject("node")?.let { nodes.put(it) }
+            }
+        } else {
+            nodes.put(item)
+        }
+        val media = JSONArray()
+        for (i in 0 until nodes.length()) {
+            packMedia(nodes.getJSONObject(i), i + 1)?.let { media.put(it) }
+        }
+        val avatar = ownerNode.optString("profile_pic_url").ifBlank { ownerNode.optString("profile_pic_url_hd") }
+        val kind = when {
+            nodes.length() > 1 -> "carousel"
+            item.optBoolean("is_video") || item.optString("video_url").isNotBlank() -> "reel"
+            else -> "photo"
+        }
+        val code = item.optString("shortcode").ifBlank { item.optString("code").ifBlank { shortcode } }
+        return JSONObject()
+            .put("ok", true)
+            .put("shortcode", code)
+            .put("kind", kind)
+            .put("taken_at", item.opt("taken_at_timestamp") ?: item.opt("taken_at"))
+            .put("likes", item.optJSONObject("edge_media_preview_like")?.opt("count") ?: item.opt("like_count"))
+            .put("comments", item.optJSONObject("edge_media_to_comment")?.opt("count") ?: item.opt("comment_count"))
+            .put("caption", caption)
+            .put("owner", JSONObject()
+                .put("username", ownerNode.optString("username"))
+                .put("name", ownerNode.optString("full_name"))
+                .put("avatar", if (avatar.isNotBlank() && hostOk(avatar)) signUrl(avatar) else JSONObject.NULL))
+            .put("media", media)
+            .put("source", "https://www.instagram.com/${if (kind == "reel") "reel" else "p"}/$code/")
+    }
+
     private fun packMedia(node: JSONObject, index: Int): JSONObject? {
         val video = bestVideo(node)
         val image = bestImage(node)
@@ -264,7 +420,7 @@ class InstagramClient {
             val c = cands.getJSONObject(i)
             if (c.optString("url").isNotBlank() && hostOk(c.optString("url"))) usable += c
         }
-        val display = node.optString("display_uri")
+        val display = node.optString("display_uri").ifBlank { node.optString("display_url") }
         if (usable.isEmpty() && display.isNotBlank() && hostOk(display)) {
             return JSONObject()
                 .put("url", display)
@@ -275,11 +431,20 @@ class InstagramClient {
     }
 
     private fun bestVideo(node: JSONObject): JSONObject? {
-        val vers = node.optJSONArray("video_versions") ?: JSONArray()
         val usable = mutableListOf<JSONObject>()
-        for (i in 0 until vers.length()) {
-            val v = vers.getJSONObject(i)
-            if (v.optString("url").isNotBlank() && hostOk(v.optString("url"))) usable += v
+        val vers = node.opt("video_versions")
+        if (vers is JSONArray) {
+            for (i in 0 until vers.length()) {
+                val v = vers.optJSONObject(i) ?: continue
+                if (v.optString("url").isNotBlank() && hostOk(v.optString("url"))) usable += v
+            }
+        }
+        val direct = node.optString("video_url").ifBlank { node.optString("playback_url") }
+        if (direct.isNotBlank() && hostOk(direct)) {
+            usable += JSONObject()
+                .put("url", direct)
+                .put("width", node.opt("original_width") ?: node.optJSONObject("dimensions")?.opt("width"))
+                .put("height", node.opt("original_height") ?: node.optJSONObject("dimensions")?.opt("height"))
         }
         return usable.maxByOrNull { it.optInt("width") * it.optInt("height") }
     }
@@ -1011,8 +1176,26 @@ class InstagramClient {
     private fun parseShortcode(raw: String): String {
         val text = raw.trim()
         if (SHORT_RE.matches(text)) return text
-        val match = URL_RE.find(text) ?: throw ApiException(400, "url")
-        return match.groupValues[1]
+        IgLinks.shortcodeFrom(text)?.let { return it }
+        IgLinks.shortcodeFrom(IgLinks.fromText(text))?.let { return it }
+        throw ApiException(400, "url")
+    }
+
+    fun pullFile(remoteUrl: String): MediaStream {
+        if (!hostOk(remoteUrl)) throw ApiException(400, "host")
+        val request = Request.Builder()
+            .url(remoteUrl)
+            .header("User-Agent", UA)
+            .header("Referer", "https://www.instagram.com/")
+            .header("Accept", "*/*")
+            .build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) {
+            response.close()
+            throw ApiException(502, "cdn")
+        }
+        val contentType = response.header("content-type") ?: "application/octet-stream"
+        return MediaStream(response, contentType, remoteUrl)
     }
 
     private fun hostOk(url: String): Boolean {
@@ -1077,6 +1260,7 @@ class InstagramClient {
         private const val UA =
             "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1"
         private const val DOC_ID = "27128499623469141"
+        private const val GRAPH_SHORTCODE_DOC = "10015901848480474"
         private const val APP_ID = "936619743392459"
         private const val IG_ANDROID_APP_ID = "567067343352427"
         private const val IG_MOBILE_UA =
@@ -1091,7 +1275,7 @@ class InstagramClient {
             RegexOption.IGNORE_CASE,
         )
         private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-        private val SHORT_RE = Regex("^[A-Za-z0-9_-]{5,20}$")
+        private val SHORT_RE = Regex("^[A-Za-z0-9_-]{5,32}$")
         private val USER_RE = Regex("^[A-Za-z0-9._]{1,30}$")
         private val USER_PAGE_RE = Regex(
             "(?:https?://)?(?:www\\.)?(?:instagram\\.com|instagr\\.am)/([A-Za-z0-9._]+)/?",
