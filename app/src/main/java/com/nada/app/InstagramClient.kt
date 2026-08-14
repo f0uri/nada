@@ -434,27 +434,90 @@ class InstagramClient {
         val request = Request.Builder()
             .url("https://www.instagram.com/$username/")
             .header("User-Agent", UA)
+            .header("x-ig-app-id", APP_ID)
             .header("referer", "https://www.instagram.com/")
             .build()
         client.newCall(request).execute().use { response ->
             if (response.code == 429) throw ApiException(429, "rate")
             if (!response.isSuccessful) throw ApiException(404, "missing")
-            val html = response.body?.string().orEmpty()
-            val pic = Regex("""property="og:image" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
+            val html = decodeEntities(response.body?.string().orEmpty())
+            val pic = Regex("""property="og:image" content="([^"]+)"""").find(html)?.groupValues?.get(1)
+                ?.replace("&amp;", "&").orEmpty()
             val title = Regex("""property="og:title" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
             val desc = Regex("""property="og:description" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
             val hd = Regex(""""profile_pic_url_hd":"([^"]+)"""").find(html)?.groupValues?.get(1)
-                ?.replace("\\u0026", "&").orEmpty()
+                ?.replace("\\u0026", "&")?.replace("\\/", "/").orEmpty()
+            val bioRaw = Regex(""""biography":"((?:\\.|[^"\\])*)"""").find(html)?.groupValues?.get(1)
+                ?.replace("\\n", "\n")?.replace("\\\"", "\"")?.replace("\\/", "/").orEmpty()
+            val userId = Regex(""""profile_id":"(\d+)"""").find(html)?.groupValues?.get(1)
+                ?: Regex(""""id":"(\d{5,})"""").find(html)?.groupValues?.get(1).orEmpty()
             if (pic.isBlank() && hd.isBlank() && title.isBlank()) throw ApiException(404, "missing")
-            val name = title.substringBefore("(@").substringBefore("•").trim()
-            return packProfile(
-                JSONObject()
-                    .put("username", username)
-                    .put("full_name", name)
-                    .put("biography", desc)
-                    .put("profile_pic_url_hd", hd.ifBlank { pic }),
-            )
+            val name = cleanProfileName(title, username)
+            val stats = parseOgStats(desc)
+            val bio = if (bioRaw.isNotBlank()) bioRaw else ""
+            val user = JSONObject()
+                .put("username", username)
+                .put("full_name", name)
+                .put("biography", bio)
+                .put("profile_pic_url_hd", hd.ifBlank { pic })
+                .put("follower_count", stats[0])
+                .put("following_count", stats[1])
+                .put("media_count", stats[2])
+                .put("id", userId)
+                .put("pk", userId)
+            return attachPosts(attachStories(packProfile(user), user), user)
         }
+    }
+
+    private fun cleanProfileName(title: String, username: String): String {
+        var name = decodeEntities(title)
+        name = name.replace(Regex("""\s*[•·].*$"""), "")
+        name = name.replace(Regex("""\s*\(@?[^)]*\)\s*"""), "")
+        name = name.replace("Instagram photos and videos", "", ignoreCase = true).trim()
+        return name.ifBlank { username }
+    }
+
+    private fun parseOgStats(desc: String): List<Any?> {
+        val text = decodeEntities(desc)
+        fun grab(label: String): Any? {
+            val m = Regex("""([\d.,]+\s*[KMB]?)\s*$label""", RegexOption.IGNORE_CASE).find(text)
+                ?: return null
+            return parseCompactNumber(m.groupValues[1])
+        }
+        return listOf(grab("Followers"), grab("Following"), grab("Posts"))
+    }
+
+    private fun parseCompactNumber(raw: String): Long? {
+        val clean = raw.replace(",", "").replace(" ", "").uppercase(Locale.US)
+        val m = Regex("""^([\d.]+)([KMB])?$""").find(clean) ?: return null
+        val n = m.groupValues[1].toDoubleOrNull() ?: return null
+        val mul = when (m.groupValues[2]) {
+            "K" -> 1_000.0
+            "M" -> 1_000_000.0
+            "B" -> 1_000_000_000.0
+            else -> 1.0
+        }
+        return (n * mul).toLong()
+    }
+
+    private fun decodeEntities(value: String): String {
+        var out = value
+            .replace("&amp;", "&")
+            .replace("&quot;", "\"")
+            .replace("&#039;", "'")
+            .replace("&apos;", "'")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&#x2022;", "•")
+            .replace("&#8226;", "•")
+            .replace("&bull;", "•")
+        out = Regex("""&#(\d+);""").replace(out) { mr ->
+            mr.groupValues[1].toIntOrNull()?.toChar()?.toString() ?: mr.value
+        }
+        out = Regex("""&#x([0-9a-fA-F]+);""").replace(out) { mr ->
+            mr.groupValues[1].toIntOrNull(16)?.toChar()?.toString() ?: mr.value
+        }
+        return out
     }
 
     private fun parseShortcode(raw: String): String {

@@ -182,24 +182,44 @@ class InstagramSession:
             raise HTTPException(429, "rate")
         if page.status_code >= 400:
             raise HTTPException(404, "missing")
-        html = page.text
+        html = decode_entities(page.text)
         pic = re.search(r'property="og:image" content="([^"]+)"', html)
         title = re.search(r'property="og:title" content="([^"]+)"', html)
         desc = re.search(r'property="og:description" content="([^"]+)"', html)
         bio = re.search(r'"biography":"((?:\\.|[^"\\])*)"', html)
         hd = re.search(r'"profile_pic_url_hd":"([^"]+)"', html)
+        uid = re.search(r'"profile_id":"(\d+)"', html) or re.search(r'"id":"(\d{5,})"', html)
         if not pic and not hd and not title:
             raise HTTPException(404, "missing")
-        name = ""
-        if title:
-            name = title.group(1).split("(@")[0].split("•")[0].strip()
+        raw_title = decode_entities(title.group(1)) if title else ""
+        name = re.sub(r"\s*[•·].*$", "", raw_title)
+        name = re.sub(r"\s*\(@?[^)]*\)\s*", "", name)
+        name = re.sub(r"Instagram photos and videos", "", name, flags=re.I).strip() or username
+        raw_desc = decode_entities(desc.group(1)) if desc else ""
+        followers = parse_og_stat(raw_desc, "Followers")
+        following = parse_og_stat(raw_desc, "Following")
+        media_count = parse_og_stat(raw_desc, "Posts")
+        biography = ""
+        if bio:
+            try:
+                biography = bio.group(1).encode("utf-8").decode("unicode_escape")
+            except Exception:
+                biography = bio.group(1)
+        avatar = ""
+        if hd:
+            avatar = hd.group(1).encode("utf-8").decode("unicode_escape")
+        elif pic:
+            avatar = pic.group(1).replace("&amp;", "&")
         return {
             "username": username,
             "full_name": name,
-            "biography": (bio.group(1).encode("utf-8").decode("unicode_escape") if bio else "")
-            or (desc.group(1) if desc else ""),
-            "profile_pic_url_hd": (hd.group(1).encode("utf-8").decode("unicode_escape") if hd else "")
-            or (pic.group(1) if pic else ""),
+            "biography": biography,
+            "profile_pic_url_hd": avatar,
+            "follower_count": followers,
+            "following_count": following,
+            "media_count": media_count,
+            "id": uid.group(1) if uid else "",
+            "pk": uid.group(1) if uid else "",
         }
 
     async def _ig_get(self, url: str, referer: str) -> dict[str, Any] | None:
