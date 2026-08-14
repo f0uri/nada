@@ -414,25 +414,6 @@
     return x.toLocaleString(state.lang === "ar" ? "ar" : "en");
   }
 
-  function renderStories(items) {
-    const row = $("storiesRow");
-    const empty = $("storiesEmpty");
-    const list = Array.isArray(items) ? items : [];
-    row.innerHTML = list
-      .map((item, i) => {
-        const src = item.preview ? mediaUrl(item.preview) : "";
-        const label = escapeHtml(item.title || (item.kind === "video" ? t("video") : t("photo")));
-        return `<button class="story-chip" type="button" data-story="${i}">
-          ${src ? `<img alt="" src="${src}" />` : ""}
-          <span>${label}</span>
-        </button>`;
-      })
-      .join("");
-    empty.hidden = list.length > 0;
-    const dlAll = $("dlStoriesBtn");
-    if (dlAll) dlAll.hidden = list.length === 0;
-  }
-
   function renderProfile(data) {
     profileState = data;
     $("profileCard").hidden = false;
@@ -440,7 +421,9 @@
     $("profileHandle").textContent = data.username ? `\u200E@${data.username}` : "";
     $("profileBio").textContent = data.bio || t("noBio");
     $("profileAvatar").src = data.avatar ? mediaUrl(data.avatar) : "";
-    $("statPosts").textContent = compact(datastatFollowing").textContent = compact(data.following);
+    $("statPosts").textContent = compact(data.post_count);
+    $("statFollowers").textContent = compact(data.followers);
+    $("statFollowing").textContent = compact(data.following);
     renderProfileGrid(data.posts || []);
     const more = $("morePosts");
     if (more) more.hidden = !data.cursor;
@@ -641,20 +624,6 @@
     if (!profileState || !profileState.avatar) return;
     const a = document.createElement("a");
     a.href = mediaUrl(profileState.avatar, true, `${profileState.username || "profile"}_avatar`);
-    a.download = "";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    toast(t("saved"));
-  });
-
-  $("storiesRow").addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-story]");
-    if (!btn || !profileState) return;
-    const item = (profileState.stories || [])[Number(btn.dataset.story)];
-    if (!item || !item.file) return;
-    const a = document.createElement("a");
-    a.href = mediaUrl(item.file, true, `${profileState.username || "story"}_${item.id || btn.dataset.story}`);
     a.download = "";
     document.body.appendChild(a);
     a.click();
