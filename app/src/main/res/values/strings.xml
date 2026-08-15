@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">IG SAVE</string>
+    <string name="admob_app_id" translatable="false">ca-app-pub-4928386589082122~7556472644</string>
+    <string name="admob_banner_id" translatable="false">ca-app-pub-4928386589082122/7504501752</string>
     <string name="auth_title">دخول مؤقت للستوريات</string>
     <string name="auth_hint">نسجّل هذه المرة فقط ثم نمسح الجلسة. لا نخزّن كلمة المرور ولا الكوكيز.</string>
     <string name="auth_close">إلغاء</string>

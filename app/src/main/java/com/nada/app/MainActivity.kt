@@ -21,6 +21,7 @@ import android.webkit.WebViewClient
 import android.os.Build
 import android.provider.Settings
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
@@ -32,7 +33,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var authOverlay: View
     private lateinit var authWeb: WebView
     private lateinit var server: NadaServer
+    private lateinit var adSlot: FrameLayout
     private val instagram = InstagramClient()
+    private var banner: BannerAds? = null
+    private var bannerFromJs = true
     private var pageReady = false
     private var pendingUrl: String? = null
     private var pendingStoryUserId: String = ""
@@ -45,9 +49,12 @@ class MainActivity : AppCompatActivity() {
         web = findViewById(R.id.web)
         authOverlay = findViewById(R.id.authOverlay)
         authWeb = findViewById(R.id.authWeb)
+        adSlot = findViewById(R.id.adSlot)
 
         server = NadaServer(this, instagram)
         server.start()
+        banner = BannerAds(this, adSlot) { visible, height -> notifyBanner(visible, height) }
+        banner?.start()
 
         CookieManager.getInstance().setAcceptCookie(false)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false)
@@ -70,6 +77,7 @@ class MainActivity : AppCompatActivity() {
                 pageReady = true
                 deliverPending()
                 offerClipboard()
+                applyBannerGate()
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -190,6 +198,14 @@ class MainActivity : AppCompatActivity() {
         fun isBubbleOn(): Boolean {
             return Prefs.bubbleOn(this@MainActivity) && Settings.canDrawOverlays(this@MainActivity)
         }
+
+        @JavascriptInterface
+        fun setBanner(on: Boolean) {
+            runOnUiThread {
+                bannerFromJs = on
+                applyBannerGate()
+            }
+        }
     }
 
     private fun applyBubble(on: Boolean) {
@@ -230,6 +246,7 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(authWeb, false)
         wipeWebCookies()
         authOverlay.visibility = View.VISIBLE
+        applyBannerGate()
         authWeb.loadUrl("https://www.instagram.com/accounts/login/")
     }
 
@@ -245,6 +262,7 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().setAcceptCookie(false)
         authOverlay.visibility = View.GONE
         window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        applyBannerGate()
     }
 
     private fun wipeWebCookies() {
@@ -271,7 +289,26 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        banner?.resume()
         offerClipboard()
+    }
+
+    override fun onPause() {
+        banner?.pause()
+        super.onPause()
+    }
+
+    private fun applyBannerGate() {
+        val authUp = ::authOverlay.isInitialized && authOverlay.visibility == View.VISIBLE
+        banner?.setAllowed(bannerFromJs && !authUp)
+    }
+
+    private fun notifyBanner(visible: Boolean, heightCss: Int) {
+        if (!pageReady || !::web.isInitialized) return
+        web.evaluateJavascript(
+            "window.nadaBanner && window.nadaBanner(${if (visible) "true" else "false"}, $heightCss)",
+            null,
+        )
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -320,6 +357,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        banner?.destroy()
+        banner = null
         if (::server.isInitialized) {
             server.stop()
         }

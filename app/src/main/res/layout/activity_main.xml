@@ -11,6 +11,16 @@
         android:overScrollMode="never"
         android:defaultFocusHighlightEnabled="false" />
 
+    <FrameLayout
+        android:id="@+id/adSlot"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginBottom="86dp"
+        android:background="@android:color/transparent"
+        android:minHeight="50dp"
+        android:visibility="gone" />
+
     <LinearLayout
         android:id="@+id/authOverlay"
         android:layout_width="match_parent"

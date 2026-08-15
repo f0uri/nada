@@ -391,7 +391,22 @@
     loader.classList.toggle("on", !!on);
   }
 
+  let currentView = "home";
+
+  function dhikrOpen() {
+    const el = $("dhikr");
+    return !!(el && !el.hidden);
+  }
+
+  function syncBanner() {
+    const on = currentView !== "result" && !dhikrOpen();
+    if (window.NadaBridge && typeof window.NadaBridge.setBanner === "function") {
+      window.NadaBridge.setBanner(on);
+    }
+  }
+
   function showView(name) {
+    currentView = name || "home";
     document.querySelectorAll(".view").forEach((v) => {
       v.hidden = v.dataset.view !== name;
     });
@@ -399,6 +414,7 @@
       btn.classList.toggle("on", btn.dataset.tab === (name === "result" ? "home" : name));
     });
     if (name !== "result") $("view-home").hidden = name !== "home";
+    syncBanner();
   }
 
   function mediaUrl(token, download, name) {
@@ -1130,6 +1146,11 @@
     if (found) showClip(found);
   };
 
+  window.nadaBanner = function nadaBanner(on, height) {
+    const px = on ? Math.max(0, Number(height) || 0) : 0;
+    document.documentElement.style.setProperty("--ad-h", `${px}px`);
+  };
+
   const ADHKAR = [
     "أستغفر الله",
     "أستغفر الله العظيم وأتوب إليه",
@@ -1150,6 +1171,7 @@
     clearTimeout(dhikrTimer);
     const el = $("dhikr");
     if (el) el.hidden = true;
+    syncBanner();
   }
 
   function showDhikr() {
@@ -1169,6 +1191,7 @@
     dhikrAt = now;
     clearTimeout(dhikrTimer);
     dhikrTimer = setTimeout(hideDhikr, 5000);
+    syncBanner();
   }
 
   const dhikrRoot = $("dhikr");

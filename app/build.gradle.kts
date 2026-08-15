@@ -12,6 +12,7 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+        multiDexEnabled = true
     }
 
     signingConfigs {
@@ -60,4 +61,5 @@ dependencies {
     implementation(libs.androidx.webkit)
     implementation(libs.okhttp)
     implementation(libs.nanohttpd)
+    implementation(libs.play.services.ads)
 }
