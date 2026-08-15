@@ -7,10 +7,14 @@
     @android.webkit.JavascriptInterface <methods>;
 }
 -keep class fi.iki.elonen.** { *; }
--keep class com.google.android.gms.ads.** { *; }
--keep class com.google.android.gms.common.** { *; }
+-keep class com.nada.app.BannerAds { *; }
+-keep class com.google.android.gms.** { *; }
+-keep class com.google.ads.** { *; }
+-keep class com.google.android.play.** { *; }
+-keep class com.google.android.datatransport.** { *; }
 -dontwarn com.google.android.gms.**
 -dontwarn com.google.ads.**
+-dontwarn com.google.android.play.**
 -dontwarn javax.annotation.**
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**

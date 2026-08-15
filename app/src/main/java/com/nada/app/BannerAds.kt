@@ -23,28 +23,37 @@ class BannerAds(
     private var loaded = false
     private var allowed = true
     private var heightCss = 0
+    private var started = false
 
     fun start() {
-        ViewCompat.setOnApplyWindowInsetsListener(slot) { view, insets ->
-            val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            val extra = TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_DIP,
-                86f,
-                view.resources.displayMetrics,
-            ).toInt()
-            val params = view.layoutParams as FrameLayout.LayoutParams
-            params.bottomMargin = extra + nav
-            view.layoutParams = params
-            insets
+        if (started) return
+        started = true
+        runCatching {
+            ViewCompat.setOnApplyWindowInsetsListener(slot) { view, insets ->
+                val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+                val extra = TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP,
+                    86f,
+                    view.resources.displayMetrics,
+                ).toInt()
+                val params = view.layoutParams as FrameLayout.LayoutParams
+                params.bottomMargin = extra + nav
+                view.layoutParams = params
+                insets
+            }
+            slot.requestApplyInsets()
         }
-        slot.requestApplyInsets()
-        MobileAds.initialize(activity) {
-            activity.runOnUiThread { attach() }
+        runCatching {
+            MobileAds.initialize(activity) {
+                activity.runOnUiThread { runCatching { attach() } }
+            }
+        }.onFailure {
+            started = false
         }
     }
 
     private fun attach() {
-        if (adView != null) return
+        if (adView != null || activity.isFinishing) return
         val density = activity.resources.displayMetrics.density
         val widthDp = (activity.resources.displayMetrics.widthPixels / density).toInt().coerceAtLeast(320)
         val view = AdView(activity)
@@ -79,25 +88,26 @@ class BannerAds(
 
     fun setAllowed(on: Boolean) {
         allowed = on
-        paint()
+        runCatching { paint() }
     }
 
     fun pause() {
-        adView?.pause()
+        runCatching { adView?.pause() }
     }
 
     fun resume() {
-        adView?.resume()
+        runCatching { adView?.resume() }
     }
 
     fun destroy() {
-        adView?.destroy()
+        runCatching { adView?.destroy() }
         adView = null
+        loaded = false
     }
 
     private fun paint() {
         val show = allowed && loaded
         slot.visibility = if (show) View.VISIBLE else View.GONE
-        notify(show, if (show) heightCss else 0)
+        runCatching { notify(show, if (show) heightCss else 0) }
     }
 }

@@ -52,9 +52,7 @@ class MainActivity : AppCompatActivity() {
         adSlot = findViewById(R.id.adSlot)
 
         server = NadaServer(this, instagram)
-        server.start()
-        banner = BannerAds(this, adSlot) { visible, height -> notifyBanner(visible, height) }
-        banner?.start()
+        runCatching { server.start() }
 
         CookieManager.getInstance().setAcceptCookie(false)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false)
@@ -120,6 +118,7 @@ class MainActivity : AppCompatActivity() {
         web.loadUrl(NadaServer.BASE)
         acceptIncoming(intent)
         restoreBubble()
+        web.post { startBannerSafely() }
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -289,18 +288,26 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        banner?.resume()
+        runCatching { banner?.resume() }
         offerClipboard()
     }
 
     override fun onPause() {
-        banner?.pause()
+        runCatching { banner?.pause() }
         super.onPause()
+    }
+
+    private fun startBannerSafely() {
+        if (banner != null || isFinishing || !::adSlot.isInitialized) return
+        banner = runCatching {
+            BannerAds(this, adSlot) { visible, height -> notifyBanner(visible, height) }
+        }.getOrNull()
+        runCatching { banner?.start() }
     }
 
     private fun applyBannerGate() {
         val authUp = ::authOverlay.isInitialized && authOverlay.visibility == View.VISIBLE
-        banner?.setAllowed(bannerFromJs && !authUp)
+        runCatching { banner?.setAllowed(bannerFromJs && !authUp) }
     }
 
     private fun notifyBanner(visible: Boolean, heightCss: Int) {
