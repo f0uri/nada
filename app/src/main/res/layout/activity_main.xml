@@ -2,7 +2,9 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/sand">
+    android:background="@color/sand"
+    android:clipChildren="false"
+    android:clipToPadding="false">
 
     <WebView
         android:id="@+id/web"
@@ -15,9 +17,11 @@
         android:id="@+id/adSlot"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:layout_marginBottom="86dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="88dp"
         android:background="@android:color/transparent"
+        android:clipChildren="false"
+        android:elevation="20dp"
         android:minHeight="50dp"
         android:visibility="gone" />
 

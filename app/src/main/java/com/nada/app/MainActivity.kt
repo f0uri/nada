@@ -118,7 +118,7 @@ class MainActivity : AppCompatActivity() {
         web.loadUrl(NadaServer.BASE)
         acceptIncoming(intent)
         restoreBubble()
-        web.post { startBannerSafely() }
+        web.postDelayed({ startBannerSafely() }, 700)
 
         onBackPressedDispatcher.addCallback(
             this,
