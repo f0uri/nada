@@ -97,6 +97,9 @@ html[data-theme="dark"] {
   margin: 0;
   padding: 0;
   -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 html, body { height: 100%; }
 html {
@@ -104,7 +107,16 @@ html {
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior: none;
 }
+input, textarea {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
 ::selection {
+  background: transparent;
+  color: inherit;
+}
+input::selection, textarea::selection {
   background: rgba(181, 106, 78, 0.28);
   color: var(--ink);
 }
@@ -866,7 +878,7 @@ html[dir="ltr"] .circle svg { transform: scaleX(-1); }
 .toast {
   position: absolute;
   left: 24px; right: 24px;
-  bottom: 118px;
+  bottom: calc(118px + var(--ad-h));
   z-index: 9;
   text-align: center;
   padding: 12px 14px;

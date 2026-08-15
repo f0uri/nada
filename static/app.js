@@ -887,6 +887,18 @@
       if (state.sound) Sound.play("tap");
     });
   }
+  function isField(el) {
+    return !!(el && el.closest && el.closest("input, textarea"));
+  }
+  document.addEventListener("contextmenu", (e) => {
+    if (!isField(e.target)) e.preventDefault();
+  });
+  document.addEventListener("selectstart", (e) => {
+    if (!isField(e.target)) e.preventDefault();
+  });
+  document.addEventListener("copy", (e) => {
+    if (!isField(e.target)) e.preventDefault();
+  });
   document.addEventListener("pointerdown", () => Sound.unlock(), { once: true, capture: true });
   document.addEventListener("click", (e) => {
     if (!e.isTrusted || !state.sound) return;

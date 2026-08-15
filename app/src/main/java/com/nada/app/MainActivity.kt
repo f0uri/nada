@@ -59,6 +59,11 @@ class MainActivity : AppCompatActivity() {
 
         web.overScrollMode = View.OVER_SCROLL_NEVER
         web.setDefaultFocusHighlightEnabled(false)
+        web.isLongClickable = true
+        web.setOnLongClickListener { view ->
+            val type = (view as? WebView)?.hitTestResult?.type ?: WebView.HitTestResult.UNKNOWN_TYPE
+            type != WebView.HitTestResult.EDIT_TEXT_TYPE
+        }
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
