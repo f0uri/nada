@@ -72,8 +72,12 @@ class QuickSaveService : Service() {
 
     private fun runSave(url: String) {
         goForeground(getString(R.string.save_working))
-        val result = runCatching { instagram.prepareSave(url) }.recoverCatching {
-            Thread.sleep(700)
+        val result = runCatching { instagram.prepareSave(url) }.recoverCatching { err ->
+            val retry = err !is InstagramClient.ApiException ||
+                err.status == 429 ||
+                err.code in setOf("rate", "session", "upstream", "cdn", "network")
+            if (!retry) throw err
+            Thread.sleep(400)
             instagram.prepareSave(url)
         }
         result.fold(

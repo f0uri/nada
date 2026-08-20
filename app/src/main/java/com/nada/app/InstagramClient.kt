@@ -26,8 +26,11 @@ class InstagramClient {
     private val client = OkHttpClient.Builder()
         .followRedirects(true)
         .followSslRedirects(true)
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(25, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(45, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .cookieJar(object : CookieJar {
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
                 cookies.forEach { cookieStore[it.name] = it }
@@ -112,40 +115,28 @@ class InstagramClient {
                 if (code.isNotBlank()) return "https://www.instagram.com/reel/$code/"
             }
         }
-        if (!IgLinks.needsExpand(current) && IgLinks.shortcodeFrom(current) != null) return current
+        IgLinks.shortcodeFrom(current)?.let { return current }
+        if (!IgLinks.needsExpand(current)) return current
         runCatching {
             val request = Request.Builder()
                 .url(current)
                 .header("User-Agent", UA)
                 .header("Accept-Language", "ar,en-US;q=0.8,en;q=0.6")
                 .header("Accept", "text/html,application/xhtml+xml")
+                .header("x-ig-app-id", APP_ID)
                 .build()
             client.newCall(request).execute().use { response ->
+                rememberCsrfFromStore()
                 val finalUrl = response.request.url.toString()
                 val tidyFinal = IgLinks.fromText(finalUrl).ifBlank { IgLinks.tidy(finalUrl) }
-                if (IgLinks.shortcodeFrom(tidyFinal) != null) return tidyFinal
+                IgLinks.shortcodeFrom(tidyFinal)?.let { return tidyFinal }
                 val html = response.body?.string().orEmpty()
                 extractPostUrlFromHtml(html)?.let { return it }
+                extractPostUrlFromHtml(unescapeJson(html))?.let { return it }
                 if (tidyFinal.isNotBlank()) current = tidyFinal
             }
         }
-        val seen = mutableSetOf<String>()
-        repeat(6) {
-            if (!seen.add(current)) return current
-            val redirected = peekRedirect(current)
-            if (!redirected.isNullOrBlank()) {
-                val next = IgLinks.fromText(redirected).ifBlank { IgLinks.tidy(redirected) }
-                if (IgLinks.shortcodeFrom(next) != null) return next
-                if (next.isNotBlank()) {
-                    current = next
-                    return@repeat
-                }
-            }
-            val html = runCatching { fetchHtml(current) }.getOrDefault("")
-            val found = extractPostUrlFromHtml(html)
-            if (!found.isNullOrBlank()) return found
-            return current
-        }
+        IgLinks.shortcodeFrom(current)?.let { return current }
         return current
     }
 
@@ -199,6 +190,15 @@ class InstagramClient {
             val code = mediaIdToShortcode(id)
             if (code.isNotBlank()) return "https://www.instagram.com/reel/$code/"
         }
+        Regex("""/(?:p|reel|reels|tv)/([A-Za-z0-9_-]{5,32})""").find(html)?.groupValues?.get(1)?.let { code ->
+            if (code.lowercase() !in setOf("videos", "embed", "share")) {
+                return "https://www.instagram.com/reel/$code/"
+            }
+        }
+        Regex("\"(?:media_id|pk)\"\\s*:\\s*\"(\\d{5,})\"").find(html)?.groupValues?.get(1)?.let { id ->
+            val code = mediaIdToShortcode(id)
+            if (code.isNotBlank()) return "https://www.instagram.com/reel/$code/"
+        }
         return null
     }
 
@@ -208,12 +208,12 @@ class InstagramClient {
             if (err is ApiException && err.status == 429) rate = true
         }
         if (rate) {
-            Thread.sleep(700)
+            Thread.sleep(400)
             csrf = ""
             runCatching { webInfo(shortcode) }.onSuccess { return it }
         }
-        runCatching { polarisMedia(shortcode) }.getOrNull()?.let { return it }
         runCatching { graphShortcode(shortcode) }.getOrNull()?.let { return it }
+        runCatching { polarisMedia(shortcode) }.getOrNull()?.let { return it }
         val pk = shortcodeToMediaId(shortcode)
         if (pk.isNotBlank()) {
             mediaInfo(pk, retryWeb = false)?.let { return it }
@@ -319,7 +319,14 @@ class InstagramClient {
         return pullFile(unsignUrl(token))
     }
 
+    private fun rememberCsrfFromStore() {
+        if (csrf.isNotBlank()) return
+        val fromCookie = cookieStore["csrftoken"]?.value.orEmpty()
+        if (fromCookie.isNotBlank()) csrf = fromCookie
+    }
+
     private fun ensureCsrf(): String {
+        rememberCsrfFromStore()
         if (csrf.isNotBlank()) return csrf
         val request = Request.Builder()
             .url("https://www.instagram.com/")
