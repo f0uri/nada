@@ -8,6 +8,7 @@
 }
 -keep class fi.iki.elonen.** { *; }
 -keep class com.nada.app.BannerAds { *; }
+-keep class com.nada.app.PageMediaSniffer { *; }
 -keep class com.google.android.gms.** { *; }
 -keep class com.google.ads.** { *; }
 -keep class com.google.android.play.** { *; }

@@ -84,6 +84,8 @@ class InstagramClient {
         return attachPosts(attachStories(packed, resolved), resolved)
     }
 
+    fun pageUrl(raw: String): String = expandIfNeeded(raw)
+
     fun resolve(rawUrl: String): JSONObject {
         val url = expandIfNeeded(rawUrl)
         parseStory(url)?.let { return resolveStory(it) }

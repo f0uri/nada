@@ -22,10 +22,11 @@ import java.util.ArrayDeque
 
 class QuickSaveService : Service() {
     private val instagram = InstagramClient()
-    private val jobs = ArrayDeque<String>()
-    private val streams = ArrayDeque<String>()
+    private val jobs = ArrayDeque<SaveJob>()
     private val lock = Any()
     private var working = false
+
+    private class SaveJob(val url: String, val stream: String)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -33,10 +34,11 @@ class QuickSaveService : Service() {
         val url = tidyIgUrl(intent?.getStringExtra(EXTRA_URL).orEmpty())
         val stream = intent?.getStringExtra(EXTRA_STREAM).orEmpty()
         synchronized(lock) {
-            if (url.isNotBlank()) jobs.addLast(url)
-            if (stream.isNotBlank()) streams.addLast(stream)
+            if (url.isNotBlank() || stream.isNotBlank()) {
+                jobs.addLast(SaveJob(url, stream))
+            }
             if (working) return START_NOT_STICKY
-            if (jobs.isEmpty() && streams.isEmpty()) {
+            if (jobs.isEmpty()) {
                 notifyNeedLink(this)
                 stopSelf(startId)
                 return START_NOT_STICKY
@@ -51,16 +53,12 @@ class QuickSaveService : Service() {
     private fun drain() {
         while (true) {
             val next = synchronized(lock) {
-                when {
-                    jobs.isNotEmpty() -> "url" to jobs.removeFirst()
-                    streams.isNotEmpty() -> "stream" to streams.removeFirst()
-                    else -> null
-                }
+                if (jobs.isNotEmpty()) jobs.removeFirst() else null
             } ?: break
-            if (next.first == "stream") saveStream(next.second) else runSave(next.second)
+            runSave(next)
         }
         synchronized(lock) {
-            if (jobs.isNotEmpty() || streams.isNotEmpty()) {
+            if (jobs.isNotEmpty()) {
                 Thread { drain() }.start()
                 return
             }
@@ -70,15 +68,25 @@ class QuickSaveService : Service() {
         }
     }
 
-    private fun runSave(url: String) {
+    private fun runSave(job: SaveJob) {
         goForeground(getString(R.string.save_working))
-        val result = runCatching { instagram.prepareSave(url) }.recoverCatching { err ->
+        if (job.stream.isNotBlank()) {
+            val ok = runCatching { saveStreamQuiet(job.stream) }.isSuccess
+            if (ok) return
+        }
+        if (job.url.isBlank()) {
+            notifyDone(getString(R.string.save_fail_url), error = true)
+            return
+        }
+        val sniffed = runCatching { sniffAndStore(job.url) }.getOrDefault(false)
+        if (sniffed) return
+        val result = runCatching { instagram.prepareSave(job.url) }.recoverCatching { err ->
             val retry = err !is InstagramClient.ApiException ||
                 err.status == 429 ||
                 err.code in setOf("rate", "session", "upstream", "cdn", "network")
             if (!retry) throw err
             Thread.sleep(400)
-            instagram.prepareSave(url)
+            instagram.prepareSave(job.url)
         }
         result.fold(
             onSuccess = { batch ->
@@ -98,6 +106,52 @@ class QuickSaveService : Service() {
                 else notifyDone(getString(R.string.save_fail_net), error = true)
             },
         )
+    }
+
+    private fun sniffAndStore(url: String): Boolean {
+        val page = runCatching { instagram.pageUrl(url) }.getOrDefault(url)
+        val code = IgLinks.shortcodeFrom(page)
+        val pages = buildList {
+            if (!code.isNullOrBlank()) {
+                add("https://www.instagram.com/reel/$code/embed/")
+                add("https://www.instagram.com/p/$code/embed/")
+                add("https://www.instagram.com/reel/$code/")
+            }
+            add(page)
+            add(url)
+        }
+        val hit = PageMediaSniffer(this).sniff(pages) ?: return false
+        val mime = hit.mime
+        val ext = if (mime.contains("mp4") || mime.contains("video")) "mp4" else "jpg"
+        val name = "instagram_${System.currentTimeMillis()}.$ext"
+        val remote = instagram.pullFile(hit.url)
+        try {
+            val body = remote.body ?: return false
+            storeBytes(body.byteStream(), name, mime)
+        } finally {
+            remote.close()
+        }
+        notifyDone(name, error = false)
+        return true
+    }
+
+    private fun saveStreamQuiet(raw: String) {
+        val uri = Uri.parse(raw)
+        val resolver = contentResolver
+        val mime = resolver.getType(uri) ?: "video/mp4"
+        val ext = when {
+            mime.contains("png") -> "png"
+            mime.contains("webp") -> "webp"
+            mime.contains("jpeg") || mime.contains("jpg") -> "jpg"
+            mime.contains("mp4") || mime.contains("video") -> "mp4"
+            mime.contains("image") -> "jpg"
+            else -> "bin"
+        }
+        val name = "instagram_${System.currentTimeMillis()}.$ext"
+        resolver.openInputStream(uri)?.use { input ->
+            storeBytes(input, name, mime)
+        } ?: error("in")
+        notifyDone(name, error = false)
     }
 
     private fun writeRemote(file: InstagramClient.SaveFile) {
@@ -231,14 +285,14 @@ class QuickSaveService : Service() {
         private const val WORK_ID = 27
         private const val DONE_ID = 28
 
-        fun start(context: Context, url: String) {
+        fun start(context: Context, url: String, stream: Uri? = null) {
             val intent = Intent(context, QuickSaveService::class.java).putExtra(EXTRA_URL, url)
+            if (stream != null) intent.putExtra(EXTRA_STREAM, stream.toString())
             ContextCompat.startForegroundService(context, intent)
         }
 
         fun startStream(context: Context, uri: Uri) {
-            val intent = Intent(context, QuickSaveService::class.java).putExtra(EXTRA_STREAM, uri.toString())
-            ContextCompat.startForegroundService(context, intent)
+            start(context, "", uri)
         }
 
         fun tidyIgUrl(raw: String): String = IgLinks.fromText(raw).ifBlank { IgLinks.tidy(raw) }

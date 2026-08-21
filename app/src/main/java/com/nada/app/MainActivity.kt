@@ -332,15 +332,15 @@ class MainActivity : AppCompatActivity() {
     private fun acceptIncoming(intent: Intent?) {
         if (intent == null) return
         val url = IgLinks.fromIntent(intent)
-        if (url.isNotBlank()) {
-            Prefs.setLastIgUrl(this, url)
-            queueUrl(url)
-            runCatching { QuickSaveService.start(this, url) }
+        val stream = IgLinks.streamFrom(intent)
+        if (url.isNotBlank() || stream != null) {
+            if (url.isNotBlank()) {
+                Prefs.setLastIgUrl(this, url)
+                queueUrl(url)
+            }
+            runCatching { QuickSaveService.start(this, url, stream) }
             return
         }
-        val stream = IgLinks.streamFrom(intent) ?: return
-        runCatching { QuickSaveService.startStream(this, stream) }
-        Toast.makeText(this, getString(R.string.save_working), Toast.LENGTH_SHORT).show()
     }
 
     private fun offerClipboard() {
