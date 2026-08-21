@@ -20,7 +20,7 @@ class PageMediaSniffer(context: Context) {
 
     data class Hit(val url: String, val mime: String)
 
-    fun sniff(pages: List<String>, waitMs: Long = 5_000): Hit? {
+    fun sniff(pages: List<String>, waitMs: Long = 3_000): Hit? {
         val targets = pages.map { it.trim() }.filter { it.startsWith("http") }.distinct()
         if (targets.isEmpty()) return null
         val hit = AtomicReference<Hit?>(null)
@@ -63,7 +63,7 @@ class PageMediaSniffer(context: Context) {
                         if (video.get() == null && holder.get() === web) {
                             runCatching { web.loadUrl(targets[1]) }
                         }
-                    }, 4_500)
+                    }, 2_400)
                 }
             }.onFailure { latch.countDown() }
         }

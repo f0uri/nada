@@ -95,7 +95,7 @@ class InstagramSession:
         self._csrf_at = 0.0
         self._post_cache: dict[str, dict[str, Any]] = {}
         self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(25.0, connect=10.0),
+            timeout=httpx.Timeout(10.0, connect=5.0),
             follow_redirects=True,
             headers={
                 "User-Agent": UA,
@@ -1338,10 +1338,7 @@ async def profile(payload: ProfileIn, request: Request):
     packed = pack_profile(user)
     if not packed.get("username") and not packed.get("avatar"):
         raise HTTPException(404, "missing")
-    try:
-        packed["stories"] = await ig.stories(user)
-    except Exception:
-        packed["stories"] = []
+    packed["stories"] = []
     try:
         grid, cursor = await ig.user_posts(user)
         packed["posts"] = grid
@@ -1385,6 +1382,7 @@ async def media(
             ig.client.build_request("GET", url, headers=headers),
             stream=True,
             follow_redirects=True,
+            timeout=httpx.Timeout(90.0, connect=10.0),
         )
     except httpx.HTTPError as exc:
         raise HTTPException(502, "cdn") from exc

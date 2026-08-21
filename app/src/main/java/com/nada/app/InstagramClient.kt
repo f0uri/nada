@@ -26,10 +26,10 @@ class InstagramClient {
     private val client = OkHttpClient.Builder()
         .followRedirects(true)
         .followSslRedirects(true)
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .writeTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(45, TimeUnit.SECONDS)
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .writeTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(14, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .cookieJar(object : CookieJar {
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
@@ -42,6 +42,13 @@ class InstagramClient {
     private val mediaClient = client.newBuilder()
         .followRedirects(false)
         .followSslRedirects(false)
+        .callTimeout(8, TimeUnit.SECONDS)
+        .build()
+    private val downloadClient = client.newBuilder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(90, TimeUnit.SECONDS)
         .build()
     private val ephemeralClient = client.newBuilder()
         .cookieJar(CookieJar.NO_COOKIES)
@@ -80,8 +87,7 @@ class InstagramClient {
             }
         }
         enrichUser(resolved)
-        val packed = packProfile(resolved)
-        return attachPosts(attachStories(packed, resolved), resolved)
+        return attachPosts(packProfile(resolved), resolved)
     }
 
     fun pageUrl(raw: String): String = expandIfNeeded(raw)
@@ -115,6 +121,15 @@ class InstagramClient {
             if (id.isNotBlank()) {
                 val code = mediaIdToShortcode(id)
                 if (code.isNotBlank()) return "https://www.instagram.com/reel/$code/"
+            }
+        }
+        IgLinks.shortcodeFrom(current)?.let { return current }
+        if (!IgLinks.needsExpand(current)) return current
+        runCatching {
+            peekRedirect(current)?.let { loc ->
+                val tidy = IgLinks.fromText(loc).ifBlank { IgLinks.tidy(loc) }
+                IgLinks.shortcodeFrom(tidy)?.let { return tidy }
+                if (tidy.isNotBlank()) current = tidy
             }
         }
         IgLinks.shortcodeFrom(current)?.let { return current }
@@ -205,12 +220,11 @@ class InstagramClient {
 
     private fun fetchMediaItem(shortcode: String): JSONObject {
         var rate = false
-        runCatching { polarisMedia(shortcode) }.getOrNull()?.let { return it }
         runCatching { webInfo(shortcode) }.onSuccess { return it }.onFailure { err ->
             if (err is ApiException && err.status == 429) rate = true
         }
+        runCatching { polarisMedia(shortcode) }.getOrNull()?.let { return it }
         runCatching { itemFromEmbed(shortcode) }.getOrNull()?.let { return it }
-        runCatching { graphShortcode(shortcode) }.getOrNull()?.let { return it }
         val pk = shortcodeToMediaId(shortcode)
         if (pk.isNotBlank()) {
             mediaInfo(pk, retryWeb = false)?.let { return it }
@@ -220,30 +234,21 @@ class InstagramClient {
     }
 
     private fun itemFromHtml(shortcode: String): JSONObject? {
-        val pages = listOf(
-            "https://www.instagram.com/reel/$shortcode/embed/",
-            "https://www.instagram.com/p/$shortcode/embed/",
-            "https://www.instagram.com/reel/$shortcode/",
-            "https://www.instagram.com/p/$shortcode/",
-        )
-        for (page in pages) {
-            val html = runCatching { fetchHtml(page) }.getOrDefault("")
-            if (html.isBlank()) continue
-            val video = extractVideoFromHtml(html)
-            val image = extractImageFromHtml(html)
-            if (video.isNullOrBlank() && image.isNullOrBlank()) continue
-            val item = JSONObject()
-                .put("code", shortcode)
-                .put("product_type", if (!video.isNullOrBlank()) "clips" else "feed")
-                .put("media_type", if (!video.isNullOrBlank()) 2 else 1)
-            if (!video.isNullOrBlank()) item.put("video_url", video)
-            if (!image.isNullOrBlank()) {
-                item.put("display_url", image)
-                item.put("display_uri", image)
-            }
-            return item
+        val html = runCatching { fetchHtml("https://www.instagram.com/reel/$shortcode/embed/") }.getOrDefault("")
+        if (html.isBlank()) return null
+        val video = extractVideoFromHtml(html)
+        val image = extractImageFromHtml(html)
+        if (video.isNullOrBlank() && image.isNullOrBlank()) return null
+        val item = JSONObject()
+            .put("code", shortcode)
+            .put("product_type", if (!video.isNullOrBlank()) "clips" else "feed")
+            .put("media_type", if (!video.isNullOrBlank()) 2 else 1)
+        if (!video.isNullOrBlank()) item.put("video_url", video)
+        if (!image.isNullOrBlank()) {
+            item.put("display_url", image)
+            item.put("display_uri", image)
         }
-        return null
+        return item
     }
 
     private fun itemFromEmbed(shortcode: String): JSONObject? {
@@ -270,7 +275,19 @@ class InstagramClient {
                 }
             }
         }
-        return itemFromHtml(shortcode)
+        val video = extractVideoFromHtml(html)
+        val image = extractImageFromHtml(html)
+        if (video.isNullOrBlank() && image.isNullOrBlank()) return null
+        val item = JSONObject()
+            .put("code", shortcode)
+            .put("product_type", if (!video.isNullOrBlank()) "clips" else "feed")
+            .put("media_type", if (!video.isNullOrBlank()) 2 else 1)
+        if (!video.isNullOrBlank()) item.put("video_url", video)
+        if (!image.isNullOrBlank()) {
+            item.put("display_url", image)
+            item.put("display_uri", image)
+        }
+        return item
     }
 
     private fun extractImageFromHtml(html: String): String? {
@@ -295,14 +312,6 @@ class InstagramClient {
         if (lsd.isBlank()) return null
         val pk = shortcodeToMediaId(shortcode)
         if (pk.isBlank()) return null
-        runCatching {
-            val ruling = igGet(
-                "https://i.instagram.com/api/v1/web/get_ruling_for_content/?content_type=MEDIA&target_id=$pk",
-                "https://www.instagram.com/reel/$shortcode/",
-                mobile = false,
-            )
-            if (ruling != null && ruling.optString("status") != "ok") return null
-        }
         val body = FormBody.Builder()
             .add("lsd", lsd)
             .add("fb_api_caller_class", "RelayModern")
@@ -397,8 +406,22 @@ class InstagramClient {
         return pullFile(unsignUrl(token))
     }
 
+    fun warmSession() {
+        runCatching { ensureCsrf() }
+    }
+
     private fun ensureCsrf(): String {
-        if (csrf.isNotBlank()) return csrf
+        if (csrf.isNotBlank()) {
+            if (lsd.isBlank()) lsd = sharedLsd
+            return csrf
+        }
+        val now = System.currentTimeMillis()
+        if (sharedCsrf.isNotBlank() && now - sharedAt < CSRF_TTL_MS) {
+            csrf = sharedCsrf
+            if (lsd.isBlank()) lsd = sharedLsd
+            rememberCsrfCookie(csrf)
+            return csrf
+        }
         val request = Request.Builder()
             .url("https://www.instagram.com/")
             .header("User-Agent", UA)
@@ -407,24 +430,39 @@ class InstagramClient {
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw ApiException(502, "session")
             val fromCookie = cookieStore["csrftoken"]?.value.orEmpty()
-            val body = response.body?.string().orEmpty()
-            csrf = fromCookie.ifBlank {
-                Regex("\"csrf_token\":\"([^\"]+)\"").find(body)?.groupValues?.get(1).orEmpty()
-            }
-            if (lsd.isBlank()) {
-                val eqmc = Regex("""<script[^>]*id="__eqmc"[^>]*>({.*?})</script>""")
-                    .find(body)?.groupValues?.get(1).orEmpty()
-                if (eqmc.isNotBlank()) {
-                    lsd = runCatching { JSONObject(eqmc).optString("l") }.getOrDefault("")
-                }
+            csrf = fromCookie
+            if (csrf.isBlank()) {
+                val body = response.body?.string().orEmpty()
+                csrf = Regex("\"csrf_token\":\"([^\"]+)\"").find(body)?.groupValues?.get(1).orEmpty()
                 if (lsd.isBlank()) {
-                    lsd = Regex("LSD.{0,80}\"token\":\"([^\"]+)\"")
+                    val eqmc = Regex("""<script[^>]*id="__eqmc"[^>]*>({.*?})</script>""")
                         .find(body)?.groupValues?.get(1).orEmpty()
+                    if (eqmc.isNotBlank()) {
+                        lsd = runCatching { JSONObject(eqmc).optString("l") }.getOrDefault("")
+                    }
+                    if (lsd.isBlank()) {
+                        lsd = Regex("LSD.{0,80}\"token\":\"([^\"]+)\"")
+                            .find(body)?.groupValues?.get(1).orEmpty()
+                    }
                 }
             }
         }
         if (csrf.isBlank()) throw ApiException(502, "session")
+        rememberCsrfCookie(csrf)
+        sharedCsrf = csrf
+        if (lsd.isNotBlank()) sharedLsd = lsd
+        sharedAt = now
         return csrf
+    }
+
+    private fun rememberCsrfCookie(token: String) {
+        if (token.isBlank()) return
+        cookieStore["csrftoken"] = Cookie.Builder()
+            .name("csrftoken")
+            .value(token)
+            .domain("instagram.com")
+            .path("/")
+            .build()
     }
 
     private fun webInfo(shortcode: String): JSONObject {
@@ -735,7 +773,9 @@ class InstagramClient {
         }
 
         if (userId.isNotBlank()) {
-            val liveUrls = listOf(
+            val liveUrls = if (sessionCookie.isNullOrBlank()) {
+                listOf("https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=$userId")
+            } else listOf(
                 "https://i.instagram.com/api/v1/feed/user/$userId/reel_media/",
                 "https://i.instagram.com/api/v1/feed/user/$userId/story/",
                 "https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=$userId",
@@ -755,6 +795,7 @@ class InstagramClient {
                 ).forEach { addNode(it, "قصة") }
                 if (stories.length() > before) break
             }
+            if (sessionCookie.isNullOrBlank()) return stories
 
             var highlights = JSONArray()
             for (trayUrl in listOf(
@@ -1276,7 +1317,6 @@ class InstagramClient {
         if (mid.isBlank()) return null
         for (url in listOf(
             "https://www.instagram.com/api/v1/media/$mid/info/",
-            "https://i.instagram.com/api/v1/media/$mid/info/",
         )) {
             val items = igGet(url, "https://www.instagram.com/", mobile = url.contains("i.instagram.com"))
                 ?.optJSONArray("items")
@@ -1326,7 +1366,15 @@ class InstagramClient {
         }
         if (username.isBlank()) throw ApiException(404, "missing")
         val packed = profile(username)
-        val stories = packed.optJSONArray("stories") ?: JSONArray()
+        var stories = packed.optJSONArray("stories") ?: JSONArray()
+        if (stories.length() == 0) {
+            val uid = packed.optString("user_id")
+            if (uid.isNotBlank()) {
+                stories = runCatching {
+                    fetchStories(JSONObject().put("id", uid).put("pk", uid))
+                }.getOrDefault(JSONArray())
+            }
+        }
         if (stories.length() == 0) throw ApiException(404, "missing")
         return JSONObject()
             .put("ok", true)
@@ -1364,7 +1412,7 @@ class InstagramClient {
                 .header("Referer", "https://www.instagram.com/")
                 .header("Accept", "*/*")
                 .build()
-            val response = client.newCall(request).execute()
+            val response = downloadClient.newCall(request).execute()
             lastCode = response.code
             if (response.isSuccessful) {
                 val contentType = response.header("content-type") ?: "application/octet-stream"
@@ -1388,14 +1436,6 @@ class InstagramClient {
 
     private fun enrichNodeVideo(node: JSONObject, shortcode: String) {
         if (bestVideo(node) != null) return
-        val isVideo = node.optInt("media_type", -1) == 2 ||
-            node.optString("product_type").equals("clips", ignoreCase = true) ||
-            node.optBoolean("is_video") ||
-            node.optString("video_dash_manifest").isNotBlank()
-        if (!isVideo) return
-        val html = runCatching { fetchHtml("https://www.instagram.com/reel/$shortcode/embed/") }.getOrDefault("")
-        val found = extractVideoFromHtml(html)
-        if (!found.isNullOrBlank()) node.put("video_url", found)
     }
 
     private fun videosFromDash(manifest: String): List<JSONObject> {
@@ -1505,6 +1545,15 @@ class InstagramClient {
     class ApiException(val status: Int, val code: String) : Exception(code)
 
     companion object {
+        @Volatile
+        private var sharedCsrf: String = ""
+
+        @Volatile
+        private var sharedLsd: String = ""
+
+        @Volatile
+        private var sharedAt: Long = 0
+        private const val CSRF_TTL_MS = 20 * 60 * 1000L
         private const val UA =
             "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1"
         private const val DOC_ID = "27128499623469141"

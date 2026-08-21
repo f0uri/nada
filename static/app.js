@@ -612,7 +612,7 @@
 
   async function apiPost(path, payload) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 40000);
+    const timer = setTimeout(() => ctrl.abort(), 22000);
     try {
       const res = await fetch(path, {
         method: "POST",

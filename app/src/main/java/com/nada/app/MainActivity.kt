@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity() {
 
         server = NadaServer(this, instagram)
         runCatching { server.start() }
+        Thread { instagram.warmSession() }.start()
 
         CookieManager.getInstance().setAcceptCookie(false)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false)
