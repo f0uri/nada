@@ -20,7 +20,7 @@ class PageMediaSniffer(context: Context) {
 
     data class Hit(val url: String, val mime: String)
 
-    fun sniff(pages: List<String>, waitMs: Long = 11_000): Hit? {
+    fun sniff(pages: List<String>, waitMs: Long = 5_000): Hit? {
         val targets = pages.map { it.trim() }.filter { it.startsWith("http") }.distinct()
         if (targets.isEmpty()) return null
         val hit = AtomicReference<Hit?>(null)

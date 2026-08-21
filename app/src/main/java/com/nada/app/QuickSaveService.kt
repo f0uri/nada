@@ -78,8 +78,6 @@ class QuickSaveService : Service() {
             notifyDone(getString(R.string.save_fail_url), error = true)
             return
         }
-        val sniffed = runCatching { sniffAndStore(job.url) }.getOrDefault(false)
-        if (sniffed) return
         val result = runCatching { instagram.prepareSave(job.url) }.recoverCatching { err ->
             val retry = err !is InstagramClient.ApiException ||
                 err.status == 429 ||
@@ -102,6 +100,8 @@ class QuickSaveService : Service() {
                 }
             },
             onFailure = { err ->
+                val sniffed = runCatching { sniffAndStore(job.url) }.getOrDefault(false)
+                if (sniffed) return
                 if (err is InstagramClient.ApiException) notifyDone(mapError(err), error = true)
                 else notifyDone(getString(R.string.save_fail_net), error = true)
             },

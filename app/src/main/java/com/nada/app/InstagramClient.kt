@@ -205,17 +205,12 @@ class InstagramClient {
 
     private fun fetchMediaItem(shortcode: String): JSONObject {
         var rate = false
+        runCatching { polarisMedia(shortcode) }.getOrNull()?.let { return it }
         runCatching { webInfo(shortcode) }.onSuccess { return it }.onFailure { err ->
             if (err is ApiException && err.status == 429) rate = true
-            if (err is ApiException && err.code == "missing") csrf = ""
         }
-        if (rate || csrf.isBlank()) {
-            Thread.sleep(300)
-            csrf = ""
-            runCatching { webInfo(shortcode) }.onSuccess { return it }
-        }
+        runCatching { itemFromEmbed(shortcode) }.getOrNull()?.let { return it }
         runCatching { graphShortcode(shortcode) }.getOrNull()?.let { return it }
-        runCatching { polarisMedia(shortcode) }.getOrNull()?.let { return it }
         val pk = shortcodeToMediaId(shortcode)
         if (pk.isNotBlank()) {
             mediaInfo(pk, retryWeb = false)?.let { return it }
@@ -251,6 +246,33 @@ class InstagramClient {
         return null
     }
 
+    private fun itemFromEmbed(shortcode: String): JSONObject? {
+        val html = runCatching { fetchHtml("https://www.instagram.com/p/$shortcode/embed/") }.getOrDefault("")
+        if (html.isBlank()) return null
+        val key = "\"contextJSON\":"
+        val at = html.indexOf(key)
+        if (at >= 0) {
+            val rest = html.substring(at + key.length).trim()
+            runCatching {
+                val inner = org.json.JSONTokener(rest).nextValue()
+                val raw = when (inner) {
+                    is String -> inner
+                    is JSONObject -> inner.toString()
+                    else -> ""
+                }
+                val ctx = if (inner is JSONObject) inner else JSONObject(raw)
+                val media = ctx.optJSONObject("gql_data")?.optJSONObject("shortcode_media")
+                    ?: ctx.optJSONObject("shortcode_media")
+                if (media != null && (media.optString("video_url").isNotBlank() || media.optBoolean("is_video").not())) {
+                    if (media.optString("video_url").isNotBlank() || media.optJSONObject("edge_sidecar_to_children") != null || media.optString("display_url").isNotBlank()) {
+                        return media
+                    }
+                }
+            }
+        }
+        return itemFromHtml(shortcode)
+    }
+
     private fun extractImageFromHtml(html: String): String? {
         if (html.isBlank()) return null
         val text = unescapeJson(html)
@@ -270,8 +292,17 @@ class InstagramClient {
 
     private fun polarisMedia(shortcode: String): JSONObject? {
         val token = runCatching { ensureCsrf() }.getOrNull() ?: return null
+        if (lsd.isBlank()) return null
         val pk = shortcodeToMediaId(shortcode)
         if (pk.isBlank()) return null
+        runCatching {
+            val ruling = igGet(
+                "https://i.instagram.com/api/v1/web/get_ruling_for_content/?content_type=MEDIA&target_id=$pk",
+                "https://www.instagram.com/reel/$shortcode/",
+                mobile = false,
+            )
+            if (ruling != null && ruling.optString("status") != "ok") return null
+        }
         val body = FormBody.Builder()
             .add("lsd", lsd)
             .add("fb_api_caller_class", "RelayModern")
