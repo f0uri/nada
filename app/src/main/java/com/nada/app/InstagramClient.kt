@@ -331,6 +331,10 @@ class InstagramClient {
             .header("x-requested-with", "XMLHttpRequest")
             .header("origin", "https://www.instagram.com")
             .header("referer", "https://www.instagram.com/reel/$shortcode/")
+            .header("accept", "*/*")
+            .header("sec-fetch-dest", "empty")
+            .header("sec-fetch-mode", "cors")
+            .header("sec-fetch-site", "same-origin")
             .post(body)
             .build()
         return client.newCall(request).execute().use { response ->
@@ -430,20 +434,19 @@ class InstagramClient {
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw ApiException(502, "session")
             val fromCookie = cookieStore["csrftoken"]?.value.orEmpty()
-            csrf = fromCookie
-            if (csrf.isBlank()) {
-                val body = response.body?.string().orEmpty()
-                csrf = Regex("\"csrf_token\":\"([^\"]+)\"").find(body)?.groupValues?.get(1).orEmpty()
+            val body = response.body?.string().orEmpty()
+            csrf = fromCookie.ifBlank {
+                Regex("\"csrf_token\":\"([^\"]+)\"").find(body)?.groupValues?.get(1).orEmpty()
+            }
+            if (lsd.isBlank()) {
+                val eqmc = Regex("""<script[^>]*id="__eqmc"[^>]*>({.*?})</script>""")
+                    .find(body)?.groupValues?.get(1).orEmpty()
+                if (eqmc.isNotBlank()) {
+                    lsd = runCatching { JSONObject(eqmc).optString("l") }.getOrDefault("")
+                }
                 if (lsd.isBlank()) {
-                    val eqmc = Regex("""<script[^>]*id="__eqmc"[^>]*>({.*?})</script>""")
+                    lsd = Regex("LSD.{0,80}\"token\":\"([^\"]+)\"")
                         .find(body)?.groupValues?.get(1).orEmpty()
-                    if (eqmc.isNotBlank()) {
-                        lsd = runCatching { JSONObject(eqmc).optString("l") }.getOrDefault("")
-                    }
-                    if (lsd.isBlank()) {
-                        lsd = Regex("LSD.{0,80}\"token\":\"([^\"]+)\"")
-                            .find(body)?.groupValues?.get(1).orEmpty()
-                    }
                 }
             }
         }
@@ -1436,6 +1439,40 @@ class InstagramClient {
 
     private fun enrichNodeVideo(node: JSONObject, shortcode: String) {
         if (bestVideo(node) != null) return
+        val isVideo = node.optInt("media_type", -1) == 2 ||
+            node.optString("product_type").equals("clips", ignoreCase = true) ||
+            node.optBoolean("is_video") ||
+            node.optString("video_dash_manifest").isNotBlank()
+        if (!isVideo) return
+        val html = runCatching { fetchHtml("https://www.instagram.com/reel/$shortcode/embed/") }.getOrDefault("")
+        val found = extractVideoFromHtml(html)
+        if (!found.isNullOrBlank()) node.put("video_url", found)
+    }
+
+    fun postFromCdn(remote: String, mime: String, page: String): JSONObject {
+        val url = cleanMediaUrl(remote)
+        if (!hostOk(url)) throw ApiException(400, "host")
+        val video = mime.contains("video") || mime.contains("mp4") || url.contains(".mp4")
+        val signed = signUrl(url)
+        val media = JSONObject()
+            .put("id", "1")
+            .put("index", 1)
+            .put("kind", if (video) "video" else "image")
+            .put("preview", signed)
+            .put("file", signed)
+            .put("ext", if (video) "mp4" else "jpg")
+        val code = IgLinks.shortcodeFrom(page).orEmpty().ifBlank { "post" }
+        return JSONObject()
+            .put("ok", true)
+            .put("shortcode", code)
+            .put("kind", if (video) "reel" else "photo")
+            .put("taken_at", JSONObject.NULL)
+            .put("likes", JSONObject.NULL)
+            .put("comments", JSONObject.NULL)
+            .put("caption", "")
+            .put("owner", JSONObject().put("username", "instagram").put("name", "").put("avatar", JSONObject.NULL))
+            .put("media", org.json.JSONArray().put(media))
+            .put("source", page.ifBlank { "https://www.instagram.com/reel/$code/" })
     }
 
     private fun videosFromDash(manifest: String): List<JSONObject> {
