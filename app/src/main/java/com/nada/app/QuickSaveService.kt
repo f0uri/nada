@@ -51,20 +51,25 @@ class QuickSaveService : Service() {
     }
 
     private fun drain() {
-        while (true) {
-            val next = synchronized(lock) {
-                if (jobs.isNotEmpty()) jobs.removeFirst() else null
-            } ?: break
-            runSave(next)
-        }
-        synchronized(lock) {
-            if (jobs.isNotEmpty()) {
-                Thread { drain() }.start()
-                return
+        try {
+            while (true) {
+                val next = synchronized(lock) {
+                    if (jobs.isNotEmpty()) jobs.removeFirst() else null
+                } ?: break
+                runCatching { runSave(next) }.onFailure {
+                    notifyDone(getString(R.string.save_fail_net), error = true)
+                }
             }
-            working = false
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+        } finally {
+            synchronized(lock) {
+                if (jobs.isNotEmpty()) {
+                    Thread { drain() }.start()
+                    return
+                }
+                working = false
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
         }
     }
 

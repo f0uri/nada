@@ -26,10 +26,10 @@ class InstagramClient {
     private val client = OkHttpClient.Builder()
         .followRedirects(true)
         .followSslRedirects(true)
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
-        .writeTimeout(8, TimeUnit.SECONDS)
-        .callTimeout(14, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .cookieJar(object : CookieJar {
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
@@ -42,7 +42,7 @@ class InstagramClient {
     private val mediaClient = client.newBuilder()
         .followRedirects(false)
         .followSslRedirects(false)
-        .callTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(12, TimeUnit.SECONDS)
         .build()
     private val downloadClient = client.newBuilder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -220,17 +220,35 @@ class InstagramClient {
 
     private fun fetchMediaItem(shortcode: String): JSONObject {
         var rate = false
-        runCatching { webInfo(shortcode) }.onSuccess { return it }.onFailure { err ->
+        fun usable(item: JSONObject?): JSONObject? {
+            if (item == null) return null
+            if (hasPlayable(item)) return item
+            val kids = item.optJSONArray("carousel_media")
+            if (kids != null) {
+                for (i in 0 until kids.length()) {
+                    if (hasPlayable(kids.optJSONObject(i))) return item
+                }
+            }
+            return null
+        }
+        runCatching { webInfo(shortcode) }.onSuccess { found ->
+            usable(found)?.let { return it }
+        }.onFailure { err ->
             if (err is ApiException && err.status == 429) rate = true
         }
-        runCatching { polarisMedia(shortcode) }.getOrNull()?.let { return it }
-        runCatching { itemFromEmbed(shortcode) }.getOrNull()?.let { return it }
+        runCatching { polarisMedia(shortcode) }.getOrNull()?.let { usable(it)?.let { item -> return item } }
+        runCatching { itemFromEmbed(shortcode) }.getOrNull()?.let { usable(it)?.let { item -> return item } }
         val pk = shortcodeToMediaId(shortcode)
         if (pk.isNotBlank()) {
-            mediaInfo(pk, retryWeb = false)?.let { return it }
+            usable(mediaInfo(pk, retryWeb = false))?.let { return it }
         }
-        runCatching { itemFromHtml(shortcode) }.getOrNull()?.let { return it }
+        runCatching { itemFromHtml(shortcode) }.getOrNull()?.let { usable(it)?.let { item -> return item } }
         throw ApiException(if (rate) 429 else 404, if (rate) "rate" else "missing")
+    }
+
+    private fun hasPlayable(node: JSONObject?): Boolean {
+        if (node == null) return false
+        return bestVideo(node) != null || bestImage(node) != null
     }
 
     private fun itemFromHtml(shortcode: String): JSONObject? {
@@ -309,6 +327,7 @@ class InstagramClient {
 
     private fun polarisMedia(shortcode: String): JSONObject? {
         val token = runCatching { ensureCsrf() }.getOrNull() ?: return null
+        ensureLsd()
         if (lsd.isBlank()) return null
         val pk = shortcodeToMediaId(shortcode)
         if (pk.isBlank()) return null
@@ -417,6 +436,7 @@ class InstagramClient {
     private fun ensureCsrf(): String {
         if (csrf.isNotBlank()) {
             if (lsd.isBlank()) lsd = sharedLsd
+            rememberCsrfCookie(csrf)
             return csrf
         }
         val now = System.currentTimeMillis()
@@ -434,19 +454,20 @@ class InstagramClient {
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw ApiException(502, "session")
             val fromCookie = cookieStore["csrftoken"]?.value.orEmpty()
-            val body = response.body?.string().orEmpty()
-            csrf = fromCookie.ifBlank {
-                Regex("\"csrf_token\":\"([^\"]+)\"").find(body)?.groupValues?.get(1).orEmpty()
-            }
-            if (lsd.isBlank()) {
-                val eqmc = Regex("""<script[^>]*id="__eqmc"[^>]*>({.*?})</script>""")
-                    .find(body)?.groupValues?.get(1).orEmpty()
-                if (eqmc.isNotBlank()) {
-                    lsd = runCatching { JSONObject(eqmc).optString("l") }.getOrDefault("")
-                }
+            csrf = fromCookie
+            if (csrf.isBlank()) {
+                val body = response.body?.string().orEmpty()
+                csrf = Regex("\"csrf_token\":\"([^\"]+)\"").find(body)?.groupValues?.get(1).orEmpty()
                 if (lsd.isBlank()) {
-                    lsd = Regex("LSD.{0,80}\"token\":\"([^\"]+)\"")
+                    val eqmc = Regex("""<script[^>]*id="__eqmc"[^>]*>({.*?})</script>""")
                         .find(body)?.groupValues?.get(1).orEmpty()
+                    if (eqmc.isNotBlank()) {
+                        lsd = runCatching { JSONObject(eqmc).optString("l") }.getOrDefault("")
+                    }
+                    if (lsd.isBlank()) {
+                        lsd = Regex("LSD.{0,80}\"token\":\"([^\"]+)\"")
+                            .find(body)?.groupValues?.get(1).orEmpty()
+                    }
                 }
             }
         }
@@ -456,6 +477,32 @@ class InstagramClient {
         if (lsd.isNotBlank()) sharedLsd = lsd
         sharedAt = now
         return csrf
+    }
+
+    private fun ensureLsd() {
+        if (lsd.isNotBlank()) return
+        lsd = sharedLsd
+        if (lsd.isNotBlank()) return
+        val request = Request.Builder()
+            .url("https://www.instagram.com/")
+            .header("User-Agent", UA)
+            .header("Accept-Language", "ar,en-US;q=0.8,en;q=0.6")
+            .build()
+        runCatching {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                val eqmc = Regex("""<script[^>]*id="__eqmc"[^>]*>({.*?})</script>""")
+                    .find(body)?.groupValues?.get(1).orEmpty()
+                if (eqmc.isNotBlank()) {
+                    lsd = runCatching { JSONObject(eqmc).optString("l") }.getOrDefault("")
+                }
+                if (lsd.isBlank()) {
+                    lsd = Regex("LSD.{0,80}\"token\":\"([^\"]+)\"")
+                        .find(body)?.groupValues?.get(1).orEmpty()
+                }
+                if (lsd.isNotBlank()) sharedLsd = lsd
+            }
+        }
     }
 
     private fun rememberCsrfCookie(token: String) {

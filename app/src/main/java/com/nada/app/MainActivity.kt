@@ -335,10 +335,7 @@ class MainActivity : AppCompatActivity() {
         val url = IgLinks.fromIntent(intent)
         val stream = IgLinks.streamFrom(intent)
         if (url.isNotBlank() || stream != null) {
-            if (url.isNotBlank()) {
-                Prefs.setLastIgUrl(this, url)
-                queueUrl(url)
-            }
+            if (url.isNotBlank()) Prefs.setLastIgUrl(this, url)
             runCatching { QuickSaveService.start(this, url, stream) }
             return
         }
