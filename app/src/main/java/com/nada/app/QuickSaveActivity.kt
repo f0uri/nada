@@ -28,7 +28,13 @@ class QuickSaveActivity : Activity() {
         super.onResume()
         window.decorView.postDelayed({
             if (!isFinishing && !handed) handOff()
+        }, 120)
+        window.decorView.postDelayed({
+            if (!isFinishing && !handed) handOff()
         }, 350)
+        window.decorView.postDelayed({
+            if (!isFinishing && !handed) handOff()
+        }, 700)
     }
 
     private fun handOff() {

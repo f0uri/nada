@@ -17,12 +17,15 @@ class ShareCatcherActivity : Activity() {
     }
 
     private fun catchShare(intent: Intent?) {
-        val url = IgLinks.fromIntent(intent).ifBlank { Prefs.lastIgUrl(this) }
+        val url = IgLinks.fromIntent(intent)
         val stream = IgLinks.streamFrom(intent)
         when {
             url.isNotBlank() || stream != null -> {
                 if (url.isNotBlank()) Prefs.setLastIgUrl(this, url)
-                QuickSaveService.start(this, url, stream)
+                val started = runCatching { QuickSaveService.start(this, url, stream) }.isSuccess
+                if (!started) {
+                    runCatching { QuickSaveService.start(this, url, stream) }
+                }
             }
             else -> QuickSaveService.notifyNeedLink(this)
         }

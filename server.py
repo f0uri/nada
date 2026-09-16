@@ -6,12 +6,13 @@ import asyncio
 import hashlib
 import hmac
 import json
+import os
 import re
 import time
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -21,12 +22,14 @@ from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "static"
-SECRET = bytes((
+_FALLBACK_SECRET = bytes((
     0x6e, 0x34, 0x64, 0x34, 0x37, 0x66, 0x33, 0x63,
     0x39, 0x65, 0x32, 0x61, 0x31, 0x62, 0x38, 0x34,
     0x64, 0x65, 0x77, 0x2d, 0x6b, 0x33, 0x79, 0x32,
     0x30, 0x32, 0x36, 0x78,
 ))
+SECRET = (os.environ.get("NADA_MEDIA_SECRET") or "").encode() or _FALLBACK_SECRET
+NADA_API_KEY = (os.environ.get("NADA_API_KEY") or "").strip()
 TOKEN_TTL = 45 * 60
 DOC_ID = "27128499623469141"
 POLARIS_DOC = "27130156389949648"
@@ -60,10 +63,17 @@ ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 ALLOWED_HOST_PARTS = (
     "cdninstagram.com",
     "fbcdn.net",
-    "instagram.com",
-    "fbsbx.com",
     "cdninstagram.net",
+    "fbsbx.com",
 )
+IG_FETCH_HOSTS = {
+    "instagram.com",
+    "www.instagram.com",
+    "l.instagram.com",
+    "i.instagram.com",
+    "instagr.am",
+    "www.instagr.am",
+}
 
 _rate: dict[str, list[float]] = defaultdict(list)
 
@@ -384,7 +394,7 @@ class InstagramSession:
         return data if isinstance(data, dict) else None
 
     async def stories(self, user: dict[str, Any]) -> list[dict[str, Any]]:
-        user_id = str(user.get("id") or user.get("pk") or "")
+        user_id = "".join(ch for ch in str(user.get("id") or user.get("pk") or "") if ch.isdigit())[:20]
         items: list[dict[str, Any]] = []
         seen: set[str] = set()
 
@@ -564,11 +574,11 @@ class InstagramSession:
     async def user_posts(self, user: dict[str, Any], cursor: str | None = None) -> tuple[list[dict[str, Any]], str]:
         posts: list[dict[str, Any]] = []
         next_cursor = ""
-        user_id = str(user.get("id") or user.get("pk") or "")
+        user_id = "".join(ch for ch in str(user.get("id") or user.get("pk") or "") if ch.isdigit())[:20]
         if user_id:
             q = f"count=18"
             if cursor:
-                q += f"&max_id={quote(cursor)}"
+                q += f"&max_id={quote(cursor[:300])}"
             data = await self._ig_get(
                 f"https://www.instagram.com/api/v1/feed/user/{quote(user_id)}/?{q}",
                 f"https://www.instagram.com/{user.get('username') or ''}/",
@@ -617,17 +627,50 @@ ig = InstagramSession()
 app = FastAPI(title="Nada", docs_url=None, redoc_url=None)
 
 
+@app.middleware("http")
+async def secure_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; "
+        "font-src 'self'; script-src 'self'; connect-src 'self'; object-src 'none'; "
+        "base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    )
+    return response
+
+
 def client_ip(request: Request) -> str:
     return (request.client.host if request.client else "0") or "0"
 
 
+def require_key(request: Request) -> None:
+    if not NADA_API_KEY:
+        return
+    got = request.headers.get("x-nada-key") or ""
+    if len(got) != len(NADA_API_KEY) or not hmac.compare_digest(got.encode(), NADA_API_KEY.encode()):
+        raise HTTPException(401, "auth")
+
+
 def hit_rate(ip: str, limit: int = 24, window: float = 60.0) -> None:
     now = time.time()
+    if len(_rate) > 4096:
+        stale = [k for k, v in list(_rate.items()) if not v or now - v[-1] >= window]
+        for key in stale[:2048]:
+            _rate.pop(key, None)
     bucket = [t for t in _rate[ip] if now - t < window]
     if len(bucket) >= limit:
         raise HTTPException(429, "rate")
     bucket.append(now)
     _rate[ip] = bucket
+
+
+def _safe_chr(n: int) -> str:
+    if n < 0 or n > 0x10FFFF or 0xD800 <= n <= 0xDFFF:
+        return ""
+    return chr(n)
 
 
 def decode_entities(value: str) -> str:
@@ -643,8 +686,8 @@ def decode_entities(value: str) -> str:
         .replace("&#8226;", "•")
         .replace("&bull;", "•")
     )
-    text = re.sub(r"&#(\d+);", lambda m: chr(int(m.group(1))), text)
-    text = re.sub(r"&#x([0-9a-fA-F]+);", lambda m: chr(int(m.group(1), 16)), text)
+    text = re.sub(r"&#(\d+);", lambda m: _safe_chr(int(m.group(1))), text)
+    text = re.sub(r"&#x([0-9a-fA-F]+);", lambda m: _safe_chr(int(m.group(1), 16)), text)
     return text
 
 
@@ -961,16 +1004,34 @@ def parse_shortcode(raw: str) -> str:
 
 def host_ok(url: str) -> bool:
     try:
-        host = (urlparse(url).hostname or "").lower()
+        parsed = urlparse(url)
+        if parsed.scheme != "https":
+            return False
+        host = (parsed.hostname or "").lower()
     except Exception:
         return False
+    if not host or host[0].isdigit() or ":" in host:
+        return False
     return any(host == p or host.endswith("." + p) for p in ALLOWED_HOST_PARTS)
+
+
+def is_ig_fetch_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme != "https":
+        return False
+    host = (parsed.hostname or "").lower()
+    if not host or host[0].isdigit() or ":" in host:
+        return False
+    return host in IG_FETCH_HOSTS
 
 
 def sign_url(url: str) -> str:
     exp = int(time.time()) + TOKEN_TTL
     msg = f"{exp}.{url}".encode()
-    sig = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()[:28]
+    sig = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()
     blob = json.dumps({"e": exp, "u": url, "s": sig}, separators=(",", ":")).encode()
     return quote(blob.hex(), safe="")
 
@@ -986,8 +1047,9 @@ def unsign_url(token: str) -> str:
     if exp < time.time():
         raise HTTPException(410, "expired")
     msg = f"{exp}.{url}".encode()
-    expect = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()[:28]
-    if not hmac.compare_digest(expect, sig):
+    expect = hmac.new(SECRET, msg, hashlib.sha256).hexdigest()
+    got = str(sig)
+    if len(got) != len(expect) or not hmac.compare_digest(got, expect):
         raise HTTPException(400, "token")
     if not host_ok(url):
         raise HTTPException(400, "host")
@@ -1259,30 +1321,55 @@ def looks_like_post(url: str) -> bool:
     return bool(shortcode_from(url) or STORY_RE.search(url))
 
 
+async def fetch_ig_page(url: str) -> tuple[str, str]:
+    current = url
+    html = ""
+    final = url
+    for _ in range(5):
+        if not is_ig_fetch_url(current):
+            raise HTTPException(400, "url")
+        r = await ig.client.get(
+            current,
+            headers={"Accept": "text/html,application/xhtml+xml"},
+            follow_redirects=False,
+        )
+        loc = r.headers.get("location") or ""
+        if r.is_redirect and loc:
+            nxt = urljoin(current, loc)
+            tidy = tidy_ig_url(nxt) or nxt
+            if is_ig_fetch_url(tidy):
+                current = tidy
+                continue
+            if is_ig_fetch_url(nxt):
+                current = nxt
+                continue
+            break
+        html = r.text or ""
+        final = tidy_ig_url(str(r.url)) or current
+        break
+    return final, html
+
+
 async def expand_share(raw: str) -> str:
-    start = tidy_ig_url(raw) or (raw or "").strip()
+    start = tidy_ig_url(raw) or ""
+    if not start or not is_ig_fetch_url(start):
+        raise HTTPException(400, "url")
     if not needs_expand(start) and shortcode_from(start):
         return start
     try:
         head = await ig.client.get(start, follow_redirects=False)
         loc = head.headers.get("location") or ""
         if loc:
-            nxt = tidy_ig_url(loc) or loc
-            if shortcode_from(nxt):
-                return nxt if nxt.startswith("http") else start
-        r = await ig.client.get(
-            start,
-            headers={"Accept": "text/html,application/xhtml+xml"},
-            follow_redirects=True,
-        )
-        final = tidy_ig_url(str(r.url))
+            nxt = tidy_ig_url(urljoin(start, loc)) or ""
+            if nxt and is_ig_fetch_url(nxt) and shortcode_from(nxt):
+                return nxt
+        final, html = await fetch_ig_page(start)
         if shortcode_from(final):
             return final
-        html = r.text or ""
         og = re.search(r'property="og:url" content="([^"]+)"', html)
         if og:
             from_og = tidy_ig_url(og.group(1))
-            if shortcode_from(from_og):
+            if from_og and is_ig_fetch_url(from_og) and shortcode_from(from_og):
                 return from_og
         for match in re.finditer(
             r"https?://(?:www\.)?instagram\.com/(?:[A-Za-z0-9._]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]{5,32})",
@@ -1295,12 +1382,15 @@ async def expand_share(raw: str) -> str:
                 continue
             return f"https://www.instagram.com/reel/{match.group(1)}/"
         return final or start
+    except HTTPException:
+        raise
     except Exception:
         return start
 
 
 @app.post("/api/resolve")
 async def resolve(payload: ResolveIn, request: Request):
+    require_key(request)
     hit_rate(client_ip(request))
     try:
         url = await expand_share(payload.url)
@@ -1325,6 +1415,7 @@ async def resolve(payload: ResolveIn, request: Request):
 
 @app.post("/api/profile")
 async def profile(payload: ProfileIn, request: Request):
+    require_key(request)
     hit_rate(client_ip(request))
     username = parse_username(payload.username)
     try:
@@ -1349,12 +1440,13 @@ async def profile(payload: ProfileIn, request: Request):
 
 
 class ProfileMoreIn(BaseModel):
-    user_id: str = Field(min_length=1, max_length=80)
+    user_id: str = Field(min_length=1, max_length=20, pattern=r"^\d+$")
     cursor: str = Field(default="", max_length=300)
 
 
 @app.post("/api/profile/more")
 async def profile_more(payload: ProfileMoreIn, request: Request):
+    require_key(request)
     hit_rate(client_ip(request))
     try:
         grid, cursor = await ig.user_posts({"id": payload.user_id, "pk": payload.user_id}, payload.cursor or None)
@@ -1367,10 +1459,12 @@ async def profile_more(payload: ProfileMoreIn, request: Request):
 
 @app.get("/api/media")
 async def media(
+    request: Request,
     t: str = Query(min_length=8),
     download: int = 0,
     name: str = "nada",
 ):
+    hit_rate(client_ip(request), limit=40, window=60.0)
     url = unsign_url(t)
     headers = {
         "User-Agent": UA,
@@ -1389,6 +1483,13 @@ async def media(
     if upstream.status_code >= 300:
         await upstream.aclose()
         raise HTTPException(502, "cdn")
+    try:
+        declared = int(upstream.headers.get("content-length") or "0")
+    except ValueError:
+        declared = 0
+    if declared > 100 * 1024 * 1024:
+        await upstream.aclose()
+        raise HTTPException(413, "size")
 
     content_type = upstream.headers.get("content-type") or "application/octet-stream"
     if "mp4" in content_type or url.endswith(".mp4"):
@@ -1418,8 +1519,12 @@ async def media(
         out_headers["Content-Disposition"] = "inline"
 
     async def pump():
+        sent = 0
         try:
             async for chunk in upstream.aiter_bytes(64 * 1024):
+                sent += len(chunk)
+                if sent > 100 * 1024 * 1024:
+                    break
                 yield chunk
         finally:
             await upstream.aclose()

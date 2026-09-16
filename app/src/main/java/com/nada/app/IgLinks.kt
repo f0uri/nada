@@ -109,6 +109,21 @@ object IgLinks {
         return null
     }
 
+    fun isFetchableIg(url: String): Boolean {
+        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        if (!uri.scheme.equals("https", ignoreCase = true)) return false
+        val host = uri.host.orEmpty().lowercase()
+        if (host.isEmpty() || host[0].isDigit() || host.contains(":")) return false
+        return host == "instagram.com" || host.endsWith(".instagram.com") ||
+            host == "instagr.am" || host.endsWith(".instagr.am")
+    }
+
+    fun looksLikePost(url: String): Boolean {
+        val path = runCatching { Uri.parse(url).path.orEmpty().lowercase() }.getOrDefault("")
+        return path.contains("/reel") || path.contains("/p/") || path.contains("/tv/") ||
+            path.contains("/share") || path.startsWith("/s/")
+    }
+
     fun needsExpand(url: String): Boolean {
         val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
         val host = uri.host.orEmpty().lowercase()

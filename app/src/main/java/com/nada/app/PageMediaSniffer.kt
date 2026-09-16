@@ -4,7 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -21,7 +20,7 @@ class PageMediaSniffer(context: Context) {
     data class Hit(val url: String, val mime: String)
 
     fun sniff(pages: List<String>, waitMs: Long = 7_000): Hit? {
-        val targets = pages.map { it.trim() }.filter { it.startsWith("http") }.distinct()
+        val targets = pages.map { it.trim() }.filter { IgLinks.isFetchableIg(it) }.distinct()
         if (targets.isEmpty()) return null
         val hit = AtomicReference<Hit?>(null)
         val video = AtomicReference<Hit?>(null)
@@ -36,11 +35,9 @@ class PageMediaSniffer(context: Context) {
                     domStorageEnabled = true
                     mediaPlaybackRequiresUserGesture = false
                     cacheMode = WebSettings.LOAD_NO_CACHE
-                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                     userAgentString = UA
                 }
-                CookieManager.getInstance().setAcceptCookie(true)
-                CookieManager.getInstance().setAcceptThirdPartyCookies(web, false)
                 web.webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(
                         view: WebView,
@@ -72,11 +69,6 @@ class PageMediaSniffer(context: Context) {
             val web = holder.getAndSet(null)
             runCatching { web?.stopLoading() }
             runCatching { web?.destroy() }
-            runCatching {
-                val manager = CookieManager.getInstance()
-                manager.removeAllCookies(null)
-                manager.flush()
-            }
         }
         return video.get() ?: hit.get()
     }

@@ -211,6 +211,9 @@ class MainActivity : AppCompatActivity() {
                 applyBannerGate()
             }
         }
+
+        @JavascriptInterface
+        fun apiKey(): String = if (::server.isInitialized) server.sessionKey else ""
     }
 
     private fun applyBubble(on: Boolean) {

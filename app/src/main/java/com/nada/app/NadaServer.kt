@@ -11,13 +11,24 @@ class NadaServer(
     port: Int = PORT,
 ) : NanoHTTPD("127.0.0.1", port) {
 
+    val sessionKey: String = java.util.UUID.randomUUID().toString()
+
     override fun serve(session: IHTTPSession): Response {
         val uri = session.uri
         return try {
             when {
-                uri == "/api/resolve" && session.method == Method.POST -> handleResolve(session)
-                uri == "/api/profile" && session.method == Method.POST -> handleProfile(session)
-                uri == "/api/profile/more" && session.method == Method.POST -> handleProfileMore(session)
+                uri == "/api/resolve" && session.method == Method.POST -> {
+                    if (!authorized(session)) return jsonError(401, "auth")
+                    handleResolve(session)
+                }
+                uri == "/api/profile" && session.method == Method.POST -> {
+                    if (!authorized(session)) return jsonError(401, "auth")
+                    handleProfile(session)
+                }
+                uri == "/api/profile/more" && session.method == Method.POST -> {
+                    if (!authorized(session)) return jsonError(401, "auth")
+                    handleProfileMore(session)
+                }
                 uri == "/api/media" && session.method == Method.GET -> handleMedia(session)
                 else -> handleStatic(uri)
             }
@@ -26,6 +37,11 @@ class NadaServer(
         } catch (ex: Exception) {
             jsonError(502, "network")
         }
+    }
+
+    private fun authorized(session: IHTTPSession): Boolean {
+        val got = session.headers["x-nada-key"].orEmpty()
+        return got.isNotBlank() && got == sessionKey
     }
 
     private fun withSecurity(response: Response): Response {
@@ -72,7 +88,7 @@ class NadaServer(
             if (ex.code !in setOf("missing", "empty")) throw ex
             recoverFromPage(url) ?: throw ex
         }
-        return newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", result.toString())
+        return withSecurity(newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", result.toString()))
     }
 
     private fun recoverFromPage(url: String): JSONObject? {

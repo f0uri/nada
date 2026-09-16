@@ -184,10 +184,29 @@
   function loadHistory() {
     try {
       const raw = JSON.parse(localStorage.getItem("nada-lib") || "[]");
-      return Array.isArray(raw) ? raw.slice(0, 24) : [];
+      return Array.isArray(raw) ? raw.slice(0, 24).map((item) => {
+        if (!item || typeof item !== "object") return item;
+        return { ...item, thumbData: safeThumb(item.thumbData) };
+      }) : [];
     } catch {
       return [];
     }
+  }
+
+  function safeThumb(src) {
+    const s = String(src || "");
+    if (s.length < 32 || s.length > 400000) return "";
+    if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/.test(s)) return "";
+    return s;
+  }
+
+  function nadaKey() {
+    try {
+      if (window.NadaBridge && typeof window.NadaBridge.apiKey === "function") {
+        return String(window.NadaBridge.apiKey() || "");
+      }
+    } catch (_) {}
+    return "";
   }
 
   function safeCode(code) {
@@ -493,7 +512,7 @@
         kind: h.kind,
         username: h.username,
         name: h.name,
-        thumbData: h.thumbData || "",
+        thumbData: safeThumb(h.thumbData),
         files: Array.isArray(h.media) ? h.media.length : h.files || 1,
         at: h.at,
       }));
@@ -547,7 +566,7 @@
       media: post.media,
       files: post.media.length,
       thumb: preview ? preview.preview : null,
-      thumbData: prev.thumbData || "",
+      thumbData: safeThumb(prev.thumbData),
       at: Date.now(),
     };
     state.history = [entry, ...state.history.filter((h) => h.shortcode !== post.shortcode)].slice(0, 24);
@@ -573,7 +592,7 @@
     const ph = `<div class="lib-ph" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="14" rx="2.4" stroke="currentColor" stroke-width="1.7"/><path d="m8 14 2.4-2.6 2.2 2.1L16.2 10 20 14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div>`;
     grid.innerHTML = state.history
       .map((h) => {
-        const src = h.thumbData || "";
+        const src = safeThumb(h.thumbData);
         const code = safeCode(h.shortcode);
         if (!code) return "";
         const files = Array.isArray(h.media) ? h.media.length : h.files || 1;
@@ -614,9 +633,12 @@
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 22000);
     try {
+      const headers = { "Content-Type": "application/json" };
+      const key = nadaKey();
+      if (key) headers["X-Nada-Key"] = key;
       const res = await fetch(path, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(payload),
         signal: ctrl.signal,
       });

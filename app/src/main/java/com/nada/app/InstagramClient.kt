@@ -33,10 +33,13 @@ class InstagramClient {
         .retryOnConnectionFailure(true)
         .cookieJar(object : CookieJar {
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-                cookies.forEach { cookieStore[it.name] = it }
+                cookies.forEach { cookie ->
+                    cookieStore["${cookie.domain}|${cookie.name}"] = cookie
+                }
             }
 
-            override fun loadForRequest(url: HttpUrl): List<Cookie> = cookieStore.values.toList()
+            override fun loadForRequest(url: HttpUrl): List<Cookie> =
+                cookieStore.values.filter { it.matches(url) }
         })
         .build()
     private val mediaClient = client.newBuilder()
@@ -124,7 +127,7 @@ class InstagramClient {
             }
         }
         IgLinks.shortcodeFrom(current)?.let { return current }
-        if (!IgLinks.needsExpand(current)) return current
+        if (!IgLinks.needsExpand(current) || !IgLinks.isFetchableIg(current)) return current
         runCatching {
             peekRedirect(current)?.let { loc ->
                 val tidy = IgLinks.fromText(loc).ifBlank { IgLinks.tidy(loc) }
@@ -157,6 +160,7 @@ class InstagramClient {
     }
 
     private fun peekRedirect(url: String): String? {
+        if (!IgLinks.isFetchableIg(url)) return null
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", UA)
@@ -173,6 +177,7 @@ class InstagramClient {
     }
 
     private fun fetchHtml(url: String): String {
+        if (!IgLinks.isFetchableIg(url)) return ""
         val request = Request.Builder()
             .url(url)
             .header("User-Agent", UA)
@@ -453,7 +458,7 @@ class InstagramClient {
             .build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw ApiException(502, "session")
-            val fromCookie = cookieStore["csrftoken"]?.value.orEmpty()
+            val fromCookie = cookieStore.values.firstOrNull { it.name == "csrftoken" }?.value.orEmpty()
             csrf = fromCookie
             if (csrf.isBlank()) {
                 val body = response.body?.string().orEmpty()
@@ -507,7 +512,7 @@ class InstagramClient {
 
     private fun rememberCsrfCookie(token: String) {
         if (token.isBlank()) return
-        cookieStore["csrftoken"] = Cookie.Builder()
+        cookieStore["instagram.com|csrftoken"] = Cookie.Builder()
             .name("csrftoken")
             .value(token)
             .domain("instagram.com")
@@ -779,8 +784,10 @@ class InstagramClient {
     }
 
     fun morePosts(userId: String, cursor: String): JSONObject {
-        val user = JSONObject().put("id", userId).put("pk", userId)
-        val pair = fetchUserPosts(user, cursor.ifBlank { null })
+        val id = userId.filter { it.isDigit() }.take(20)
+        if (id.isBlank()) throw ApiException(400, "user")
+        val user = JSONObject().put("id", id).put("pk", id)
+        val pair = fetchUserPosts(user, cursor.take(300).ifBlank { null })
         return JSONObject().put("ok", true).put("posts", pair.first).put("cursor", pair.second)
     }
 
@@ -954,11 +961,13 @@ class InstagramClient {
     private fun fetchUserPosts(user: JSONObject, cursor: String?): Pair<JSONArray, String> {
         val posts = JSONArray()
         var next = ""
-        val userId = user.optString("id").ifBlank { user.optString("pk") }
+        val userId = user.optString("id").ifBlank { user.optString("pk") }.filter { it.isDigit() }.take(20)
         if (userId.isNotBlank()) {
             val q = buildString {
                 append("count=18")
-                if (!cursor.isNullOrBlank()) append("&max_id=").append(cursor)
+                if (!cursor.isNullOrBlank()) {
+                    append("&max_id=").append(URLEncoder.encode(cursor.take(300), "UTF-8"))
+                }
             }
             val data = igGet(
                 "https://www.instagram.com/api/v1/feed/user/$userId/?$q",
@@ -1327,10 +1336,12 @@ class InstagramClient {
             .replace("&#8226;", "•")
             .replace("&bull;", "•")
         out = Regex("""&#(\d+);""").replace(out) { mr ->
-            mr.groupValues[1].toIntOrNull()?.toChar()?.toString() ?: mr.value
+            val n = mr.groupValues[1].toIntOrNull() ?: return@replace mr.value
+            if (n in 0..0x10FFFF && n !in 0xD800..0xDFFF) n.toChar().toString() else ""
         }
         out = Regex("""&#x([0-9a-fA-F]+);""").replace(out) { mr ->
-            mr.groupValues[1].toIntOrNull(16)?.toChar()?.toString() ?: mr.value
+            val n = mr.groupValues[1].toIntOrNull(16) ?: return@replace mr.value
+            if (n in 0..0x10FFFF && n !in 0xD800..0xDFFF) n.toChar().toString() else ""
         }
         return out
     }
@@ -1572,7 +1583,10 @@ class InstagramClient {
 
     private fun hostOk(url: String): Boolean {
         return try {
-            val host = url.toHttpUrlOrNull()?.host?.lowercase(Locale.US) ?: return false
+            val parsed = url.toHttpUrlOrNull() ?: return false
+            if (parsed.scheme != "https") return false
+            val host = parsed.host.lowercase(Locale.US)
+            if (host.isEmpty() || host[0].isDigit() || ":" in host) return false
             ALLOWED.any { host == it || host.endsWith(".$it") }
         } catch (_: Exception) {
             false
@@ -1606,7 +1620,7 @@ class InstagramClient {
     private fun hmac(value: String): String {
         val mac = Mac.getInstance("HmacSHA256")
         mac.init(SecretKeySpec(secret, "HmacSHA256"))
-        return mac.doFinal(value.toByteArray(StandardCharsets.UTF_8)).toHex().take(28)
+        return mac.doFinal(value.toByteArray(StandardCharsets.UTF_8)).toHex()
     }
 
     private fun safeFilePart(raw: String): String {
@@ -1670,9 +1684,8 @@ class InstagramClient {
         private val ALLOWED = listOf(
             "cdninstagram.com",
             "fbcdn.net",
-            "instagram.com",
-            "fbsbx.com",
             "cdninstagram.net",
+            "fbsbx.com",
         )
     }
 }

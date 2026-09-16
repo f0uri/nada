@@ -155,8 +155,12 @@ class BubbleService : Service() {
     }
 
     private fun saveInBackground() {
-        runCatching { startActivity(QuickSaveActivity.intent(this)) }
-            .onFailure { QuickSaveService.notifyNeedLink(this) }
+        val last = Prefs.lastIgUrl(this)
+        val started = runCatching { startActivity(QuickSaveActivity.intent(this)) }.isSuccess
+        if (!started) {
+            if (last.isNotBlank()) QuickSaveService.start(this, last)
+            else QuickSaveService.notifyNeedLink(this)
+        }
     }
 
     private fun refreshNotification(visible: Boolean) {

@@ -75,7 +75,7 @@ class QuickSaveService : Service() {
 
     private fun runSave(job: SaveJob) {
         goForeground(getString(R.string.save_working))
-        if (job.stream.isNotBlank()) {
+        if (job.stream.isNotBlank() && shouldSaveStream(job)) {
             val ok = runCatching { saveStreamQuiet(job.stream) }.isSuccess
             if (ok) return
         }
@@ -107,6 +107,10 @@ class QuickSaveService : Service() {
             onFailure = { err ->
                 val sniffed = runCatching { sniffAndStore(job.url) }.getOrDefault(false)
                 if (sniffed) return
+                if (job.stream.isNotBlank()) {
+                    val ok = runCatching { saveStreamQuiet(job.stream) }.isSuccess
+                    if (ok) return
+                }
                 if (err is InstagramClient.ApiException) notifyDone(mapError(err), error = true)
                 else notifyDone(getString(R.string.save_fail_net), error = true)
             },
@@ -138,6 +142,19 @@ class QuickSaveService : Service() {
         }
         notifyDone(name, error = false)
         return true
+    }
+
+    private fun shouldSaveStream(job: SaveJob): Boolean {
+        val uri = runCatching { Uri.parse(job.stream) }.getOrNull() ?: return false
+        val mime = contentResolver.getType(uri).orEmpty().lowercase()
+        val streamIsVideo = mime.contains("video") || mime.contains("mp4")
+        val looksPost = IgLinks.looksLikePost(job.url)
+        return when {
+            streamIsVideo -> true
+            job.url.isBlank() -> true
+            looksPost -> false
+            else -> mime.startsWith("image/")
+        }
     }
 
     private fun saveStreamQuiet(raw: String) {
@@ -194,6 +211,7 @@ class QuickSaveService : Service() {
     }
 
     private fun storeBytes(input: java.io.InputStream, name: String, mime: String) {
+        val limited = LimitedInput(input, 120L * 1024 * 1024)
         if (Build.VERSION.SDK_INT >= 29) {
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
@@ -203,7 +221,7 @@ class QuickSaveService : Service() {
             val out = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 ?: error("store")
             try {
-                contentResolver.openOutputStream(out)?.use { input.copyTo(it) } ?: error("out")
+                contentResolver.openOutputStream(out)?.use { limited.copyTo(it) } ?: error("out")
                 values.clear()
                 values.put(MediaStore.Downloads.IS_PENDING, 0)
                 contentResolver.update(out, values, null, null)
@@ -214,8 +232,27 @@ class QuickSaveService : Service() {
         } else {
             val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             dir.mkdirs()
-            File(dir, name).outputStream().use { input.copyTo(it) }
+            File(dir, name).outputStream().use { limited.copyTo(it) }
         }
+    }
+
+    private class LimitedInput(private val inner: java.io.InputStream, private val max: Long) : java.io.InputStream() {
+        private var seen = 0L
+        override fun read(): Int {
+            val value = inner.read()
+            if (value >= 0) account(1)
+            return value
+        }
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            val n = inner.read(b, off, len)
+            if (n > 0) account(n.toLong())
+            return n
+        }
+        private fun account(n: Long) {
+            seen += n
+            if (seen > max) error("size")
+        }
+        override fun close() = inner.close()
     }
 
     private fun mapError(ex: InstagramClient.ApiException): String {
