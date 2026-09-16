@@ -10,19 +10,27 @@ android {
         applicationId = "com.nada.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 56
+        versionName = "1.56"
         multiDexEnabled = true
     }
 
     signingConfigs {
         getByName("debug") {
-            val debugKeystore = rootProject.file("debug.keystore")
-            if (debugKeystore.exists()) {
-                storeFile = debugKeystore
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
+            val stable = rootProject.file("signing/nada.jks")
+            val fallback = rootProject.file("debug.keystore")
+            val chosen = if (stable.exists()) stable else fallback
+            if (chosen.exists()) {
+                storeFile = chosen
+                if (chosen.name.endsWith(".jks")) {
+                    storePassword = "NadaIgSave2026x"
+                    keyAlias = "nada"
+                    keyPassword = "NadaIgSave2026x"
+                } else {
+                    storePassword = "android"
+                    keyAlias = "androiddebugkey"
+                    keyPassword = "android"
+                }
             }
         }
     }

@@ -63,6 +63,9 @@
       bubbleBody: "من إنستغرام: مشاركة → تنزيل. يبدأ الحفظ في الخلفية وتعود لإنستغرام. الزر العائم اختياري. اضغط مطولاً لإخفائه ثم أعده من الإشعار.",
       bubbleOn: "تفعيل الزر العائم",
       bubbleOff: "إيقاف الزر العائم",
+      batteryTitle: "لا يُوقف التنزيل",
+      batteryBody: "على شاومي وهواوي وسامسونج: اسمح للتطبيق بالعمل في الخلفية حتى لا يُقتل الحفظ بعد مشاركة الريلز.",
+      batteryBtn: "السماح بالخلفية",
       loading: "نبحث عن المنشور…",
       reel: "ريلز",
       photo: "صورة",
@@ -145,6 +148,9 @@
       bubbleBody: "From Instagram: Share → Download. Saving starts in the background and you return to Instagram. The overlay is optional. Long-press to hide, then show it from the notification.",
       bubbleOn: "Enable floating button",
       bubbleOff: "Disable floating button",
+      batteryTitle: "Keep saving alive",
+      batteryBody: "On Xiaomi, Huawei, and Samsung: allow background activity so a shared Reel is not killed mid-save.",
+      batteryBtn: "Allow background",
       loading: "Looking for the post…",
       reel: "Reel",
       photo: "Photo",
@@ -345,7 +351,7 @@
         if (dest) return extractIgUrl(dest);
       } catch (_) {}
     }
-    const m = src.match(/https?:\/\/(?:www\.)?(?:instagram\.com|instagr\.am)\/[^\s<>"']+/i);
+    const m = src.match(/https?:\/\/(?:www\.|m\.|l\.)?(?:instagram\.com|instagr\.am)\/[^\s<>"']+/i);
     if (!m) return "";
     const raw = m[0].replace(/[),.\]>]+$/, "");
     try {
@@ -426,6 +432,7 @@
 
   function showView(name) {
     currentView = name || "home";
+    if (name === "library") repairThumbs();
     document.querySelectorAll(".view").forEach((v) => {
       v.hidden = v.dataset.view !== name;
     });
@@ -582,6 +589,37 @@
         renderLibrary();
       });
     }
+  }
+
+  const triedThumbs = new Set();
+
+  function repairThumbs() {
+    const missing = state.history.filter((h) => {
+      const code = safeCode(h.shortcode);
+      return code && !safeThumb(h.thumbData) && !triedThumbs.has(code);
+    }).slice(0, 6);
+    missing.forEach((h, i) => {
+      const code = safeCode(h.shortcode);
+      if (!code) return;
+      triedThumbs.add(code);
+      window.setTimeout(() => {
+        apiPost("/api/resolve", { url: `https://www.instagram.com/p/${code}/` })
+          .then((data) => {
+            const preview = data && data.media && data.media[0] && data.media[0].preview;
+            if (!preview) return "";
+            return snapshotThumb(preview);
+          })
+          .then((dataUrl) => {
+            if (!dataUrl) return;
+            const item = state.history.find((x) => x.shortcode === code);
+            if (!item) return;
+            item.thumbData = dataUrl;
+            persistLibrary();
+            renderLibrary();
+          })
+          .catch(() => {});
+      }, 600 * i);
+    });
   }
 
   function renderLibrary() {
@@ -1174,6 +1212,17 @@
   window.nadaBubbleState = function nadaBubbleState(on) {
     syncBubble(!!on);
   };
+
+  const batteryBtn = $("batteryBtn");
+  if (batteryBtn) {
+    batteryBtn.addEventListener("click", () => {
+      if (!window.NadaBridge || typeof window.NadaBridge.openBattery !== "function") {
+        toast(t("storiesNeedApp"));
+        return;
+      }
+      window.NadaBridge.openBattery();
+    });
+  }
 
   window.nadaOfferClip = function nadaOfferClip(url) {
     const found = extractIgUrl(url);

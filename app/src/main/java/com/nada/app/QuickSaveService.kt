@@ -44,7 +44,7 @@ class QuickSaveService : Service() {
                 return START_NOT_STICKY
             }
             working = true
-            goForeground(getString(R.string.save_working))
+            goForeground(getString(R.string.save_stage_link), busy = true)
             Thread { drain() }.start()
         }
         return START_NOT_STICKY
@@ -74,8 +74,9 @@ class QuickSaveService : Service() {
     }
 
     private fun runSave(job: SaveJob) {
-        goForeground(getString(R.string.save_working))
+        goForeground(getString(R.string.save_stage_link), busy = true)
         if (job.stream.isNotBlank() && shouldSaveStream(job)) {
+            goForeground(getString(R.string.save_stage_file), busy = true)
             val ok = runCatching { saveStreamQuiet(job.stream) }.isSuccess
             if (ok) return
         }
@@ -83,6 +84,7 @@ class QuickSaveService : Service() {
             notifyDone(getString(R.string.save_fail_url), error = true)
             return
         }
+        goForeground(getString(R.string.save_stage_video), busy = true)
         val result = runCatching { instagram.prepareSave(job.url) }.recoverCatching { err ->
             val retry = err !is InstagramClient.ApiException ||
                 err.status == 429 ||
@@ -93,21 +95,33 @@ class QuickSaveService : Service() {
         }
         result.fold(
             onSuccess = { batch ->
+                val wantsVideo = looksLikeReel(job.url)
+                val hasVideo = batch.files.any { it.mime.contains("video") || it.name.endsWith(".mp4") }
+                if (wantsVideo && !hasVideo) {
+                    goForeground(getString(R.string.save_stage_video), busy = true)
+                    val sniffed = runCatching { sniffAndStore(job.url) }.getOrDefault(false)
+                    if (sniffed) return
+                }
                 try {
+                    goForeground(getString(R.string.save_stage_file), busy = true)
                     for (file in batch.files) writeRemote(file)
                     val who = "@${batch.username}"
                     val detail = getString(R.string.save_files, batch.files.size)
                     notifyDone("$who · $detail", error = false)
                 } catch (ex: InstagramClient.ApiException) {
+                    val sniffed = runCatching { sniffAndStore(job.url) }.getOrDefault(false)
+                    if (sniffed) return
                     notifyDone(mapError(ex), error = true)
                 } catch (_: Exception) {
                     notifyDone(getString(R.string.save_fail_net), error = true)
                 }
             },
             onFailure = { err ->
+                goForeground(getString(R.string.save_stage_video), busy = true)
                 val sniffed = runCatching { sniffAndStore(job.url) }.getOrDefault(false)
                 if (sniffed) return
                 if (job.stream.isNotBlank()) {
+                    goForeground(getString(R.string.save_stage_file), busy = true)
                     val ok = runCatching { saveStreamQuiet(job.stream) }.isSuccess
                     if (ok) return
                 }
@@ -115,6 +129,11 @@ class QuickSaveService : Service() {
                 else notifyDone(getString(R.string.save_fail_net), error = true)
             },
         )
+    }
+
+    private fun looksLikeReel(url: String): Boolean {
+        val path = url.lowercase()
+        return path.contains("/reel") || path.contains("/share/") || path.contains("/reels/")
     }
 
     private fun sniffAndStore(url: String): Boolean {
@@ -264,8 +283,8 @@ class QuickSaveService : Service() {
         }
     }
 
-    private fun goForeground(text: String) {
-        val notification = buildNotification(getString(R.string.save_working), text, ongoing = true, error = false)
+    private fun goForeground(text: String, busy: Boolean = true) {
+        val notification = buildNotification(getString(R.string.save_working), text, ongoing = true, error = false, busy = busy)
         if (Build.VERSION.SDK_INT >= 34) {
             val started = runCatching {
                 startForeground(WORK_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
@@ -286,10 +305,10 @@ class QuickSaveService : Service() {
 
     private fun notifyDone(text: String, error: Boolean) {
         val title = if (error) getString(R.string.save_fail) else getString(R.string.save_started)
-        manager().notify(DONE_ID, buildNotification(title, text, ongoing = false, error = error))
+        manager().notify(DONE_ID, buildNotification(title, text, ongoing = false, error = error, busy = false))
     }
 
-    private fun buildNotification(title: String, text: String, ongoing: Boolean, error: Boolean): Notification {
+    private fun buildNotification(title: String, text: String, ongoing: Boolean, error: Boolean, busy: Boolean): Notification {
         ensureChannel(this)
         val downloads = Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)
         val target = if (downloads.resolveActivity(packageManager) != null) {

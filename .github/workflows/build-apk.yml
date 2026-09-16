@@ -75,29 +75,16 @@ jobs:
         with:
           gradle-version: "9.3.1"
 
-      - name: Create temporary debug keystore
+      - name: Use stable signing key
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f ./debug.keystore ]; then
-            echo "Temporary debug keystore already exists."
+          if [ -f ./signing/nada.jks ]; then
+            echo "Stable app signing key is present."
           else
-            echo "Generating temporary debug keystore."
-            keytool -genkeypair \
-              -keystore ./debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          if [ ! -f ./debug.keystore ]; then
-            echo "ERROR: Temporary debug keystore could not be created at ./debug.keystore"
+            echo "ERROR: signing/nada.jks is missing."
             exit 1
           fi
-          echo "Temporary debug keystore is present."
 
       - name: Build debug APK
         shell: bash
@@ -222,7 +209,7 @@ jobs:
 
           The APK is intended for testing.
           The APK is not a Play Store production release.
-          The APK is signed only with a temporary debug keystore.
+          The APK is signed with the stable IG SAVE key so updates install over previous builds.
           EOF
           )"
           gh release create "${tag}" \

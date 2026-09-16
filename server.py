@@ -47,12 +47,12 @@ IG_MOBILE_UA = (
 )
 
 URL_RE = re.compile(
-    r"(?:https?://)?(?:www\.)?(?:instagram\.com|instagr\.am)"
+    r"(?:https?://)?(?:www\.|m\.|l\.)?(?:instagram\.com|instagr\.am)"
     r"/(?:[^/?#]+/)?(?:p|tv|reel|reels)/([A-Za-z0-9_-]+)",
     re.I,
 )
 STORY_RE = re.compile(
-    r"(?:https?://)?(?:www\.)?(?:instagram\.com|instagr\.am)/stories/"
+    r"(?:https?://)?(?:www\.|m\.|l\.)?(?:instagram\.com|instagr\.am)/stories/"
     r"(?:highlights/(\d+)|([A-Za-z0-9._]+)/(\d+)|([A-Za-z0-9._]+)/?)",
     re.I,
 )
@@ -88,7 +88,7 @@ class ProfileIn(BaseModel):
 
 USER_RE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 USER_URL_RE = re.compile(
-    r"(?:https?://)?(?:www\.)?(?:instagram\.com|instagr\.am)/([A-Za-z0-9._]+)/?",
+    r"(?:https?://)?(?:www\.|m\.|l\.)?(?:instagram\.com|instagr\.am)/([A-Za-z0-9._]+)/?",
     re.I,
 )
 RESERVED = {

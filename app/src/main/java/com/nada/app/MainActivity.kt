@@ -214,6 +214,24 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun apiKey(): String = if (::server.isInitialized) server.sessionKey else ""
+
+        @JavascriptInterface
+        fun openBattery() {
+            runOnUiThread { askBattery() }
+        }
+    }
+
+    private fun askBattery() {
+        if (Build.VERSION.SDK_INT < 23) return
+        val uri = Uri.parse("package:$packageName")
+        val asked = runCatching {
+            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).setData(uri))
+        }.isSuccess
+        if (!asked) {
+            runCatching {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        }
     }
 
     private fun applyBubble(on: Boolean) {

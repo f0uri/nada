@@ -9,6 +9,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
@@ -42,6 +43,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="www.instagram.com" />
                 <data android:scheme="https" android:host="instagram.com" />
+                <data android:scheme="https" android:host="m.instagram.com" />
                 <data android:scheme="https" android:host="l.instagram.com" />
                 <data android:scheme="https" android:host="www.instagr.am" />
                 <data android:scheme="https" android:host="instagr.am" />

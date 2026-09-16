@@ -6,7 +6,7 @@ import android.os.Build
 
 object IgLinks {
     private val ANY = Regex(
-        """(?:https?://)?(?:www\.)?(?:l\.)?(?:instagram\.com|instagr\.am)/[^\s<>"'\]\)]+""",
+        """(?:https?://)?(?:www\.|m\.|l\.)?(?:instagram\.com|instagr\.am)/[^\s<>"'\]\)]+""",
         RegexOption.IGNORE_CASE,
     )
     private val L_IG = Regex(

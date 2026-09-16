@@ -16,11 +16,15 @@
     <string name="bubble_hide">إخفاء</string>
     <string name="save_channel">التنزيلات</string>
     <string name="save_working">جاري جلب المنشور…</string>
-    <string name="save_started">بدأ التنزيل</string>
-    <string name="save_files">%1$d ملف</string>
+    <string name="save_stage_link">نقرأ الرابط…</string>
+    <string name="save_stage_video">نجلب الفيديو الأصلي…</string>
+    <string name="save_stage_file">نحفظ في التنزيلات…</string>
+    <string name="save_started">تم الحفظ</string>
+    <string name="save_files">%1$d ملف في التنزيلات</string>
     <string name="save_fail">تعذّر التنزيل</string>
     <string name="save_fail_url">هذا ليس رابط إنستغرام صالحاً</string>
     <string name="save_fail_missing">المنشور غير متاح، أو الحساب خاص</string>
     <string name="save_fail_rate">تم الإبطاء قليلاً. أعد المحاولة بعد لحظة</string>
     <string name="save_fail_net">تعذّر الاتصال. تحقق من الشبكة</string>
+    <string name="battery_channel">التشغيل في الخلفية</string>
 </resources>
