@@ -960,6 +960,20 @@
     if (!isField(e.target)) e.preventDefault();
   });
   document.addEventListener("pointerdown", () => Sound.unlock(), { once: true, capture: true });
+  const LIFT = ".card.glass, .composer.glass, .clip-bar.glass, .profile-card.glass, .lib-card, .profile-stats div, .grid-item, .story-chip";
+  function clearLift() {
+    document.querySelectorAll(".is-lift").forEach((el) => el.classList.remove("is-lift"));
+  }
+  document.addEventListener("pointerdown", (e) => {
+    const card = e.target.closest(LIFT);
+    if (!card || e.target.closest("input, textarea, .field-clear, .lib-del")) return;
+    clearLift();
+    card.classList.add("is-lift");
+  }, true);
+  document.addEventListener("pointerup", () => {
+    window.setTimeout(clearLift, 160);
+  }, true);
+  document.addEventListener("pointercancel", clearLift, true);
   document.addEventListener("click", (e) => {
     if (!e.isTrusted || !state.sound) return;
     const btn = e.target.closest("button");
