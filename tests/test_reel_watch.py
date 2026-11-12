@@ -172,14 +172,20 @@ def test_resolver_and_protected_files_untouched():
         "app/src/main/java/com/nada/app/QuickSaveService.kt",
         "app/src/main/java/com/nada/app/QuickSaveActivity.kt",
         "app/src/main/java/com/nada/app/ShareCatcherActivity.kt",
-        "app/src/main/assets/app.js",
-        "static/app.js",
+        # 1.63 owns the trilingual WebView work, so app.js is no longer
+        # protected here (the download core above still is).
         "app/src/main/assets/styles.css",
         "static/styles.css",
         "signing/nada.jks",
         "server.py",
     }
     assert protected.isdisjoint(changed), sorted(protected & set(changed))
+
+
+def test_copy_click_climbs_deeper_sheets():
+    """1.63: the Copy tap may climb up to 8 ancestors (deep sheet rows)."""
+    src = read(JAVA / "ReelWatchService.kt")
+    assert "private const val CLICK_PARENT_HOPS = 8" in src
 
 
 def test_version_bumped_consistently():
