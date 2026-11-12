@@ -13,6 +13,22 @@ import java.util.Locale
 object ShareNodes {
     const val INSTAGRAM_PACKAGE = "com.instagram.android"
 
+    /** Packages of the Android system share sheet, which may host the Copy link
+     *  node once Share was tapped. */
+    val RESOLVER_PACKAGES = setOf(
+        "com.android.intentresolver",
+        "com.google.android.intentresolver",
+    )
+
+    /**
+     * Whether a window package may be searched in [phase]: Instagram always;
+     * the system share-sheet packages only once Share was tapped.
+     */
+    fun isSearchablePackage(pkg: String?, phase: Int): Boolean {
+        if (pkg == INSTAGRAM_PACKAGE) return true
+        return phase == PHASE_WAIT_SHEET && pkg != null && pkg in RESOLVER_PACKAGES
+    }
+
     /** Phase 0: looking at the reel, share sheet not requested yet. */
     const val PHASE_FIND_SHARE = 0
 
