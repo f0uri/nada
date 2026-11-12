@@ -2,5 +2,5 @@
   "version": "1.58",
   "versionCode": 58,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.58: one-tap bubble download of the reel being watched. Enable the optional accessibility service, then tap the floating bubble inside Instagram — it opens Share, presses Copy link and downloads that reel without opening IG SAVE. Instagram only, only after your tap, off by default."
+  "changelog": "IG SAVE 1.58: one-tap bubble download of the reel being watched. Enable the optional accessibility service, then tap the floating bubble inside Instagram \u2014 it opens Share, presses Copy link and downloads that reel without opening IG SAVE. Instagram only, only after your tap, off by default."
 }
