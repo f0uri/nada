@@ -2,19 +2,21 @@ package com.nada.app
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageInstaller
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
+import android.view.LayoutInflater
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.core.content.FileProvider
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -29,8 +31,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Invariants that fix the 1.57/1.58 loop:
  *  - every exit path releases [busy] and closes the progress dialog, so a
  *    failure can never leave a non-cancelable dialog frozen at 100%;
- *  - the install session is committed on a worker thread and its result is
- *    handled by [UpdateInstallActivity], including STATUS_PENDING_USER_ACTION;
+ *  - installing hands the verified APK to the system installer (the Reel
+ *    Checker path): the user taps Install once and the app reinstalls over
+ *    itself with data kept. No PackageInstaller session, so nothing can hang
+ *    on "installing".
  *  - "Later" and the daily prompt cap are persisted in [UpdateState];
  *  - the APK is verified (ZIP magic, size, package, version, signature) before
  *    it is ever handed to the installer.
@@ -58,6 +62,7 @@ class AppUpdateManager private constructor(private val app: Context) {
     private var dialog: AlertDialog? = null
     private var bar: ProgressBar? = null
     private var label: TextView? = null
+    private var percentView: TextView? = null
     private var host: Activity? = null
 
     /** True while a download or an install session is in flight. */
@@ -150,6 +155,7 @@ class AppUpdateManager private constructor(private val app: Context) {
         dialog = null
         bar = null
         label = null
+        percentView = null
     }
 
     /** Drops the Activity reference so a background result cannot leak it. */
@@ -318,29 +324,24 @@ class AppUpdateManager private constructor(private val app: Context) {
 
     private fun showProgress(activity: Activity) {
         dismiss()
-        val pad = dp(activity, 24)
-        val box = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(pad, pad, pad, pad)
-        }
-        label = TextView(activity).apply {
-            text = progressText
-            gravity = Gravity.CENTER
-        }
-        bar = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+        val root = LayoutInflater.from(activity).inflate(R.layout.dialog_update_glassy, null)
+        root.findViewById<TextView>(R.id.update_title).text = app.getString(R.string.update_title)
+        percentView = root.findViewById<TextView>(R.id.update_percent)
+        label = root.findViewById<TextView>(R.id.update_status)
+        bar = root.findViewById<ProgressBar>(R.id.update_bar).apply {
             max = 100
             isIndeterminate = progress == 0
             progress = this@AppUpdateManager.progress
         }
-        box.addView(label)
-        box.addView(bar, LinearLayout.LayoutParams(-1, -2).apply { topMargin = pad / 2 })
+        label?.text = progressText
+        percentView?.text = "${progress}%"
         dialog = AlertDialog.Builder(activity)
-            .setTitle(R.string.update_title)
-            .setView(box)
+            .setView(root)
             // Cancelable: a stuck dialog must never trap the user.
             .setCancelable(true)
             .setNegativeButton(R.string.update_later, null)
             .show()
+        dialog?.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
     }
 
     /** Short error with a retry action; never a frozen progress dialog. */
@@ -365,6 +366,7 @@ class AppUpdateManager private constructor(private val app: Context) {
 
     private fun renderProgress() {
         label?.text = progressText
+        percentView?.text = "${progress}%"
         bar?.let {
             it.isIndeterminate = progress == 0
             it.progress = progress
@@ -374,6 +376,12 @@ class AppUpdateManager private constructor(private val app: Context) {
     private fun canInstall(): Boolean =
         Build.VERSION.SDK_INT < 26 || app.packageManager.canRequestPackageInstalls()
 
+    /**
+     * Installs the update the way Reel Checker does: hand the downloaded APK
+     * to the system installer, which reinstalls the app over itself (data
+     * kept). The user taps Install once. No PackageInstaller session, no
+     * silent-install handshake, nothing that can hang on "installing".
+     */
     private fun install(activity: Activity, apk: File, update: Update) {
         if (!busy.compareAndSet(false, true)) return
         if (!canInstall()) {
@@ -389,114 +397,26 @@ class AppUpdateManager private constructor(private val app: Context) {
             }
             return
         }
-        progressText = app.getString(R.string.update_installing)
-        showProgress(activity)
-        Thread {
-            var sessionId = -1
-            try {
-                val installer = app.packageManager.packageInstaller
-                val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-                    setAppPackageName(app.packageName)
-                    setSize(apk.length())
-                    if (Build.VERSION.SDK_INT >= 31) {
-                        setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-                    }
-                }
-                sessionId = installer.createSession(params)
-                val id = sessionId
-                installer.openSession(id).use { session ->
-                    apk.inputStream().use { input ->
-                        session.openWrite("ig-save.apk", 0, apk.length()).use { output ->
-                            input.copyTo(output)
-                            session.fsync(output)
-                        }
-                    }
-                    val intent = Intent(app, UpdateInstallActivity::class.java)
-                        .setAction(UpdateInstallActivity.ACTION)
-                        .putExtra(UpdateInstallActivity.EXTRA_CODE, update.code)
-                    // Mutable is required: the installer fills in EXTRA_STATUS.
-                    val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                        (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
-                    val pending = PendingIntent.getActivity(app, id, intent, flags)
-                    session.commit(pending.intentSender)
-                }
-                // The result arrives in UpdateInstallActivity. Mark that we are
-                // waiting so a resume does not start a second session.
-                installing = true
-                main.post {
-                    progressText = app.getString(R.string.update_installing)
-                    renderProgress()
-                }
-                main.postDelayed({ onInstallTimeout(activity, update, apk) }, INSTALL_TIMEOUT_MS)
-            } catch (err: Exception) {
-                if (sessionId >= 0) {
-                    runCatching { app.packageManager.packageInstaller.abandonSession(sessionId) }
-                }
-                val reason = describe(err)
-                main.post {
-                    installing = false
-                    busy.set(false)
-                    dismiss()
-                    if (!activity.isFinishing && !activity.isDestroyed) {
-                        showError(activity, reason) { install(activity, apk, update) }
-                    }
-                }
-            }
-        }.start()
-    }
-
-    /**
-     * Safety net: if the installer never calls back, close the progress dialog
-     * and offer a retry instead of sitting at 100% forever.
-     */
-    private fun onInstallTimeout(activity: Activity, update: Update, apk: File) {
-        if (!installing) return
-        installing = false
-        busy.set(false)
-        if (installedCode() >= update.code) {
-            state.availableCode = 0L
-            state.settledCode = installedCode()
-            dismiss()
-            notifyCard(activity)
-            return
-        }
         dismiss()
-        if (!activity.isFinishing && !activity.isDestroyed) {
+        busy.set(false)
+        if (!installWithSystemInstaller(activity, apk)) {
             showError(activity, app.getString(R.string.update_failed)) { install(activity, apk, update) }
         }
     }
 
-    /** Called by UpdateInstallActivity once the session reports a result. */
-    fun onInstallResult(code: Long, success: Boolean, message: String?) {
-        installing = false
-        busy.set(false)
-        main.removeCallbacksAndMessages(null)
-        val activity = host
-        main.post {
-            dismiss()
-            if (success || installedCode() >= code) {
-                pendingApk = null
-                pendingUpdate = null
-                state.availableCode = 0L
-                state.settledCode = installedCode()
-                state.rememberPrompt(code)
-                if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
-                    notifyCard(activity)
-                }
-                return@post
-            }
-            if (activity != null && !activity.isFinishing && !activity.isDestroyed) {
-                val apk = pendingApk
-                val update = pendingUpdate
-                showError(
-                    activity,
-                    message?.takeIf { it.isNotBlank() } ?: app.getString(R.string.update_failed),
-                ) {
-                    if (apk != null && update != null && apk.exists()) install(activity, apk, update)
-                    else download(activity, update ?: return@showError)
-                }
-            }
-        }
+    /** Opens the system installer on the downloaded APK (the Reel Checker path). */
+    private fun installWithSystemInstaller(activity: Activity, apk: File): Boolean {
+        if (!apk.exists()) return false
+        val uri = runCatching {
+            FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", apk)
+        }.getOrNull() ?: return false
+        return runCatching {
+            val view = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            activity.startActivity(view)
+            true
+        }.getOrDefault(false)
     }
 
     private fun describe(err: Exception): String {
@@ -543,13 +463,8 @@ class AppUpdateManager private constructor(private val app: Context) {
         private const val MANIFEST_URL = "https://raw.githubusercontent.com/f0uri/nada/main/version.json"
         private const val MAX_APK = 120L * 1024 * 1024
         private const val MIN_APK = 100L * 1024
-        private const val INSTALL_TIMEOUT_MS = 90_000L
 
         @Volatile private var instance: AppUpdateManager? = null
-
-        /** True while a committed session has not reported back yet. */
-        @Volatile var installing: Boolean = false
-            private set
 
         fun get(context: Context): AppUpdateManager =
             instance ?: synchronized(this) {
