@@ -64,7 +64,7 @@ def test_no_dialog_while_download_or_install_in_progress():
 
 def test_busy_released_on_every_early_return():
     src = read(UPDATER)
-    install = src.split("private fun install(")[1].split("private fun onInstallTimeout")[0]
+    install = src.split("private fun install(")[1].split("private fun installWithSystemInstaller")[0]
     permission_block = install.split("if (!canInstall()) {")[1].split("return")[0]
     assert "busy.set(false)" in permission_block, "permission path must release busy"
     assert "dismiss()" in permission_block, "permission path must close the progress dialog"
@@ -77,6 +77,22 @@ def test_progress_dialog_is_cancelable():
     assert ".setCancelable(false)" not in progress
 
 
+def test_progress_dialog_is_glassy():
+    src = read(UPDATER)
+    assert "R.layout.dialog_update_glassy" in src
+    assert "R.id.update_percent" in src
+    layout = read(APP / "res" / "layout" / "dialog_update_glassy.xml")
+    assert "update_percent" in layout
+    assert "update_bar" in layout
+    assert "update_status" in layout
+    assert "update_card_glassy" in layout
+    assert "update_progress_gold" in layout
+    card = read(APP / "res" / "drawable" / "update_card_glassy.xml")
+    assert "D4AF37" in card
+    progress = read(APP / "res" / "drawable" / "update_progress_gold.xml")
+    assert "D4AF37" in progress
+
+
 def test_failures_show_error_with_retry():
     src = read(UPDATER)
     assert "R.string.update_retry" in src
@@ -87,45 +103,45 @@ def test_failures_show_error_with_retry():
     assert '<string name="update_retry">إعادة المحاولة</string>' in strings
 
 
-def test_install_timeout_cannot_leave_a_frozen_dialog():
+
+def test_update_installs_via_system_installer():
     src = read(UPDATER)
-    assert "INSTALL_TIMEOUT_MS" in src
-    assert "postDelayed({ onInstallTimeout(" in src
-    timeout = src.split("private fun onInstallTimeout(")[1].split("fun onInstallResult")[0]
-    assert "dismiss()" in timeout
-    assert "showError(" in timeout
+    install = src.split("private fun install(")[1].split("private fun installWithSystemInstaller")[0]
+    # The install step hands the APK to the system installer (Reel Checker path).
+    assert "installWithSystemInstaller(activity, apk)" in install
+    assert "FileProvider.getUriForFile" in src
+    assert "Intent.ACTION_VIEW" in src
+    assert '"application/vnd.android.package-archive"' in src
+    assert "FLAG_GRANT_READ_URI_PERMISSION" in src
+    manifest = read(APP / "AndroidManifest.xml")
+    assert "androidx.core.content.FileProvider" in manifest
+    assert "com.nada.app.fileprovider" in manifest
+    paths = read(APP / "res" / "xml" / "file_paths.xml")
+    assert "cache-path" in paths
+    assert 'path="updates/"' in paths
 
 
-def test_install_result_always_clears_busy_and_dialog():
+def test_no_silent_session_machinery():
     src = read(UPDATER)
-    result = src.split("fun onInstallResult(")[1].split("private fun describe")[0]
-    assert "installing = false" in result
-    assert "busy.set(false)" in result
-    assert "dismiss()" in result
+    # No PackageInstaller session: nothing to hang, no callback to lose.
+    assert "createSession" not in src
+    assert "USER_ACTION_NOT_REQUIRED" not in src
+    assert "UpdateResultReceiver" not in src
+    assert "UpdateInstallActivity" not in src
+    assert "onInstallTimeout" not in src
+    assert "INSTALL_TIMEOUT_MS" not in src
+    assert "abandonSession" not in src
+    manifest = read(APP / "AndroidManifest.xml")
+    assert "UpdateResultReceiver" not in manifest
+    assert "UpdateInstallActivity" not in manifest
+    assert "UPDATE_PACKAGES_WITHOUT_USER_ACTION" not in manifest
 
 
-def test_pending_user_action_is_handled_once():
-    src = read(JAVA / "UpdateInstallActivity.kt")
-    assert "PackageInstaller.STATUS_PENDING_USER_ACTION" in src
-    assert "Intent.EXTRA_INTENT" in src
-    assert "startActivity(confirmation" in src
-    # every branch reports back so the dialog cannot hang
-    assert src.count("manager.onInstallResult(") >= 4
-
-
-def test_session_params_and_permissions_in_place():
+def test_install_permission_in_place():
     src = read(UPDATER)
-    assert "USER_ACTION_NOT_REQUIRED" in src
-    assert "PendingIntent.FLAG_MUTABLE" in src
+    assert "canInstall()" in src
     manifest = read(APP / "AndroidManifest.xml")
     assert "android.permission.REQUEST_INSTALL_PACKAGES" in manifest
-    assert "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" in manifest
-
-
-def test_session_is_abandoned_on_failure():
-    src = read(UPDATER)
-    assert "abandonSession(sessionId)" in src
-
 
 # ---------------------------------------------------------------------------
 # Root cause 3: download/verification correctness
@@ -201,7 +217,7 @@ def test_dialog_description_is_one_short_line():
 
 
 def test_no_secret_is_logged():
-    for path in (UPDATER, JAVA / "UpdateInstallActivity.kt", JAVA / "UpdateState.kt"):
+    for path in (UPDATER, JAVA / "UpdateState.kt"):
         src = read(path)
         assert "Log." not in src
         assert "println(" not in src
@@ -234,13 +250,13 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_60():
+def test_version_bumped_to_61():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 60" in gradle
-    assert 'versionName = "1.60"' in gradle
+    assert "versionCode = 61" in gradle
+    assert 'versionName = "1.61"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.60"
-    assert manifest["versionCode"] == 60
+    assert manifest["version"] == "1.61"
+    assert manifest["versionCode"] == 61
 
 
 # ---------------------------------------------------------------------------
