@@ -1,1 +1,6 @@
-{"apkUrl":"https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk","changelog":"IG SAVE 1.60: the bubble now finishes the download by itself — the share sheet only flashes briefly and closes on its own; tap the bubble while watching a reel and it downloads, no taps in the share sheet.","version":"1.60","versionCode":60}
+{
+  "version": "1.60",
+  "versionCode": 60,
+  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
+  "changelog": "IG SAVE 1.60: the bubble now finishes the download by itself \u2014 the share sheet only flashes briefly and closes on its own; tap the bubble while watching a reel and it downloads, no taps in the share sheet."
+}
