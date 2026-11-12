@@ -35,7 +35,7 @@ class InstagramClient {
         .callTimeout(30, TimeUnit.SECONDS)
         .cookieJar(object : CookieJar {
             override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-                cookies.forEach { cookieStore["${cookie.domain}|${cookie.name}"] = it }
+                cookies.forEach { cookieStore["${it.domain}|${it.name}"] = it }
             }
 
             override fun loadForRequest(url: HttpUrl): List<Cookie> =
