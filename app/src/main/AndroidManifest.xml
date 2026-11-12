@@ -11,7 +11,6 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
@@ -87,12 +86,15 @@
             android:taskAffinity="com.nada.app.quicksave"
             android:theme="@style/Theme.Nada.Ghost" />
 
-        <activity
-            android:name=".UpdateInstallActivity"
-            android:excludeFromRecents="true"
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.nada.app.fileprovider"
             android:exported="false"
-            android:noHistory="true"
-            android:theme="@style/Theme.Nada.Ghost" />
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <service
             android:name=".BubbleService"
