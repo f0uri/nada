@@ -27,11 +27,13 @@ import android.widget.Toast
  *    except after Share was tapped, when the share sheet may own it;
  *  - it clicks at most one Share control and at most one "Copy link" control,
  *    found by label / content-description / resource-id — never by coordinates;
- *    only an exact label or resource-id match is ever clicked — a weak match
- *    is never clicked, because a wrong tap in the sheet could send the reel
- *    to a person. If the label is not exact (for example the UI language
- *    changed), the service stops and falls back to the clipboard instead of
- *    guessing, and it never touches settings or the language;
+ *    Share only opens the sheet (it can never send the reel to a person), so
+ *    even a prefix match may tap it; Copy stays exact-label-or-resource-id
+ *    only — a weak match is never clicked there, because a wrong tap in the
+ *    sheet could send the reel to a person. If the Copy label is not exact
+ *    (for example the UI language changed), the service stops and falls back
+ *    to the clipboard instead of guessing, and it never touches settings or
+ *    the language;
  *  - once Share was tapped, the sheet may be Instagram's own sheet or the
  *    system share sheet: the search covers both, and the Copy tap is allowed
  *    in either window. The wait phase polls fast (100 ms) so the sheet only

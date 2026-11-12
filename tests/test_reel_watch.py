@@ -256,6 +256,8 @@ fun main() {
     check("share ar reel", ShareNodes.shareScore("مشاركة الريل", null), 3)
     check("share id", ShareNodes.shareScore(null, "com.instagram.android:id/row_feed_button_share"), 2)
     check("share prefix", ShareNodes.shareScore("Share reel to a friend", null), 1)
+    check("share exact fr", ShareNodes.shareScore("Partager", null), 3)
+    check("share prefix fr", ShareNodes.shareScore("Partager le reel à un ami", null), 1)
     check("share unrelated", ShareNodes.shareScore("Settings", null), 0)
     check("share like button", ShareNodes.shareScore("Like", null), 0)
     check("share null", ShareNodes.shareScore(null, null), 0)
@@ -268,6 +270,7 @@ fun main() {
     check("copy id", ShareNodes.copyScore(null, null, "com.instagram.android:id/copy_link"), 3)
     check("copy prefix", ShareNodes.copyScore("Copy link to reel", null, null), 4)
     check("copy bare", ShareNodes.copyScore("Copy", null, null), 1)
+    check("copy exact fr", ShareNodes.copyScore("Copier le lien", null, null), 4)
     check("copy unrelated", ShareNodes.copyScore("Save", null, null), 0)
     check("copy null", ShareNodes.copyScore(null, null, null), 0)
 
@@ -282,7 +285,7 @@ fun main() {
     val wait = ShareNodes.PHASE_WAIT_SHEET
     check("open reel taps share", ShareNodes.nextAction(find, 0, 3), ShareNodes.Step.SHARE)
     check("share id taps", ShareNodes.nextAction(find, 0, 2), ShareNodes.Step.SHARE)
-    check("weak share gives up", ShareNodes.nextAction(find, 0, 1), ShareNodes.Step.GIVE_UP)
+    check("weak share taps", ShareNodes.nextAction(find, 0, 1), ShareNodes.Step.SHARE)
     check("nothing found gives up", ShareNodes.nextAction(find, 0, 0), ShareNodes.Step.GIVE_UP)
     check("bare copy on reel is ignored", ShareNodes.nextAction(find, 1, 0), ShareNodes.Step.GIVE_UP)
     check("copy id on reel is ignored", ShareNodes.nextAction(find, 2, 0), ShareNodes.Step.GIVE_UP)

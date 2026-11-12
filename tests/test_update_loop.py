@@ -34,8 +34,10 @@ def test_later_is_persisted_not_a_no_op():
     src = read(UPDATER)
     # The old code was .setNegativeButton(R.string.update_later, null)
     assert "setNegativeButton(R.string.update_later, null)" not in src.split("private fun showAvailable")[1].split("private fun showUpToDate")[0]
-    assert "state.rememberLater(update.code)" in src
-    assert "setOnCancelListener { state.rememberLater(update.code) }" in src
+    available = src.split("private fun showAvailable(")[1].split("private fun showUpToDate")[0]
+    assert "state.rememberLater(update.code)" in available
+    # The glassy status dialog forwards its cancel to the caller's onCancel.
+    assert "setOnCancelListener { onCancel?.invoke() }" in src
 
 
 def test_update_state_survives_process_death():
@@ -91,6 +93,29 @@ def test_progress_dialog_is_glassy():
     assert "D4AF37" in card
     progress = read(APP / "res" / "drawable" / "update_progress_gold.xml")
     assert "D4AF37" in progress
+
+
+def test_update_status_dialog_is_glassy():
+    src = read(UPDATER)
+    helper = src.split("private fun showStatusDialog(")[1].split("private fun download(")[0]
+    assert "R.layout.dialog_update_status_glassy" in helper
+    assert "ColorDrawable(Color.TRANSPARENT)" in helper
+    assert "setCancelable(true)" in helper
+    available = src.split("private fun showAvailable(")[1].split("private fun showUpToDate")[0]
+    assert "showStatusDialog(" in available
+    assert "download(activity, update)" in available
+    assert "rememberLater(update.code)" in available
+    up_to_date = src.split("private fun showUpToDate(")[1].split("private fun showStatusDialog(")[0]
+    assert "showStatusDialog(" in up_to_date
+    layout = read(APP / "res" / "layout" / "dialog_update_status_glassy.xml")
+    assert "update_status_title" in layout
+    assert "update_status_message" in layout
+    assert "update_status_primary" in layout
+    assert "update_status_secondary" in layout
+    assert "update_card_glassy" in layout
+    assert "update_button_gold" in layout
+    button = read(APP / "res" / "drawable" / "update_button_gold.xml")
+    assert "D4AF37" in button
 
 
 def test_failures_show_error_with_retry():
@@ -250,13 +275,13 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_61():
+def test_version_bumped_to_62():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 61" in gradle
-    assert 'versionName = "1.61"' in gradle
+    assert "versionCode = 62" in gradle
+    assert 'versionName = "1.62"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.61"
-    assert manifest["versionCode"] == 61
+    assert manifest["version"] == "1.62"
+    assert manifest["versionCode"] == 62
 
 
 # ---------------------------------------------------------------------------

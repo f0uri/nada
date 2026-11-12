@@ -2,6 +2,7 @@ package com.nada.app
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -11,8 +12,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.view.Gravity
 import android.view.LayoutInflater
+import android.view.View
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -59,7 +60,7 @@ class AppUpdateManager private constructor(private val app: Context) {
     @Volatile private var pendingUpdate: Update? = null
     @Volatile private var progress = 0
     @Volatile private var progressText = ""
-    private var dialog: AlertDialog? = null
+    private var dialog: Dialog? = null
     private var bar: ProgressBar? = null
     private var label: TextView? = null
     private var percentView: TextView? = null
@@ -196,40 +197,68 @@ class AppUpdateManager private constructor(private val app: Context) {
     }
 
     private fun showAvailable(activity: Activity, update: Update) {
-        dismiss()
-        val pad = dp(activity, 24)
         // One short line only: no changelog dump.
-        val message = TextView(activity).apply {
-            text = app.getString(R.string.update_available, update.version)
-            textSize = 15f
-            setPadding(pad, pad, pad, pad)
-        }
-        dialog = AlertDialog.Builder(activity)
-            .setTitle(R.string.update_title)
-            .setView(message)
-            .setPositiveButton(R.string.update_now) { _, _ -> download(activity, update) }
-            .setNegativeButton(R.string.update_later) { _, _ ->
+        showStatusDialog(
+            activity,
+            app.getString(R.string.update_available, update.version),
+            app.getString(R.string.update_now),
+            { download(activity, update) },
+            app.getString(R.string.update_later),
+            {
                 // Persisted, so a cold start does not ask again today.
                 state.rememberLater(update.code)
-            }
-            .setOnCancelListener { state.rememberLater(update.code) }
-            .show()
+            },
+            { state.rememberLater(update.code) },
+        )
     }
 
     private fun showUpToDate(activity: Activity) {
+        showStatusDialog(
+            activity,
+            app.getString(R.string.update_none),
+            app.getString(R.string.update_ok),
+            { /* already up to date; nothing to do */ },
+            null,
+            null,
+            null,
+        )
+    }
+
+    /**
+     * The glassy status dialog: the same floating dark-gold card as the
+     * download bar. [primaryLabel] is the gold button, [secondaryLabel] the
+     * quiet one (null hides it). [onCancel] runs on back press or outside tap.
+     */
+    private fun showStatusDialog(
+        activity: Activity,
+        message: String,
+        primaryLabel: String,
+        onPrimary: () -> Unit,
+        secondaryLabel: String?,
+        onSecondary: (() -> Unit)?,
+        onCancel: (() -> Unit)?,
+    ) {
         dismiss()
-        val pad = dp(activity, 24)
-        val message = TextView(activity).apply {
-            text = app.getString(R.string.update_none)
-            textSize = 15f
-            gravity = Gravity.CENTER
-            setPadding(pad, pad, pad, pad)
+        val root = LayoutInflater.from(activity).inflate(R.layout.dialog_update_status_glassy, null)
+        root.findViewById<TextView>(R.id.update_status_title).text = app.getString(R.string.update_title)
+        root.findViewById<TextView>(R.id.update_status_message).text = message
+        val primary = root.findViewById<TextView>(R.id.update_status_primary)
+        primary.text = primaryLabel
+        primary.setOnClickListener { dismiss(); onPrimary() }
+        val secondary = root.findViewById<TextView>(R.id.update_status_secondary)
+        if (secondaryLabel == null) {
+            secondary.visibility = View.GONE
+        } else {
+            secondary.text = secondaryLabel
+            secondary.setOnClickListener { dismiss(); onSecondary?.invoke() }
         }
-        dialog = AlertDialog.Builder(activity)
-            .setTitle(R.string.update_title)
-            .setView(message)
-            .setPositiveButton(R.string.update_ok, null)
-            .show()
+        val d = Dialog(activity)
+        d.setContentView(root)
+        d.setCancelable(true)
+        d.setOnCancelListener { onCancel?.invoke() }
+        d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        dialog = d
+        d.show()
     }
 
     private fun download(activity: Activity, update: Update) {
