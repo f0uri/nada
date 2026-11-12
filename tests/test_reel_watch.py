@@ -123,7 +123,13 @@ def test_at_most_one_share_tap_and_one_copy_tap():
 def test_click_refuses_non_instagram_nodes():
     src = read(JAVA / "ReelWatchService.kt")
     click = src.split("private fun click(")[1].split("private fun readClipboard")[0]
-    assert "if (pkg != ShareNodes.INSTAGRAM_PACKAGE) return false" in click
+    # Only Instagram, plus the system share-sheet packages for the Copy step.
+    assert "pkg == ShareNodes.INSTAGRAM_PACKAGE" in click
+    assert "ShareNodes.RESOLVER_PACKAGES" in click
+    assert "if (!inScope) return false" in click
+    # Share never allows the resolver; only the Copy step does.
+    assert "if (!click(share.node))" in src
+    assert "if (!click(copy.node, allowResolver = true))" in src
 
 
 def test_fallback_toast_text_is_exact():
@@ -275,13 +281,16 @@ fun main() {
     val find = ShareNodes.PHASE_FIND_SHARE
     val wait = ShareNodes.PHASE_WAIT_SHEET
     check("open reel taps share", ShareNodes.nextAction(find, 0, 3), ShareNodes.Step.SHARE)
-    check("weak share still taps", ShareNodes.nextAction(find, 0, 1), ShareNodes.Step.SHARE)
+    check("share id taps", ShareNodes.nextAction(find, 0, 2), ShareNodes.Step.SHARE)
+    check("weak share gives up", ShareNodes.nextAction(find, 0, 1), ShareNodes.Step.GIVE_UP)
     check("nothing found gives up", ShareNodes.nextAction(find, 0, 0), ShareNodes.Step.GIVE_UP)
     check("bare copy on reel is ignored", ShareNodes.nextAction(find, 1, 0), ShareNodes.Step.GIVE_UP)
     check("copy id on reel is ignored", ShareNodes.nextAction(find, 2, 0), ShareNodes.Step.GIVE_UP)
     check("already open sheet copies", ShareNodes.nextAction(find, 4, 3), ShareNodes.Step.COPY)
     check("sheet waits", ShareNodes.nextAction(wait, 0, 3), ShareNodes.Step.WAIT)
-    check("sheet bare copy accepted", ShareNodes.nextAction(wait, 1, 0), ShareNodes.Step.COPY)
+    check("sheet bare copy waits", ShareNodes.nextAction(wait, 1, 0), ShareNodes.Step.WAIT)
+    check("sheet prefix copy waits", ShareNodes.nextAction(wait, 2, 0), ShareNodes.Step.WAIT)
+    check("sheet copy id accepted", ShareNodes.nextAction(wait, 3, 0), ShareNodes.Step.COPY)
     check("sheet exact copy accepted", ShareNodes.nextAction(wait, 4, 0), ShareNodes.Step.COPY)
     check("unknown phase gives up", ShareNodes.nextAction(99, 4, 3), ShareNodes.Step.GIVE_UP)
     println("ALL PASS")
