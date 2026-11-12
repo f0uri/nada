@@ -1,6 +1,1 @@
-{
-  "version": "1.60",
-  "versionCode": 60,
-  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.60: the bubble now finishes the download by itself \u2014 the share sheet only flashes briefly and closes on its own; tap the bubble while watching a reel and it downloads, no taps in the share sheet."
-}
+{"apkUrl":"https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk","changelog":"IG SAVE 1.61: updates now reinstall through the system installer like Reel Checker — download, tap Install once, done. The download bar is now a floating glassy gold card. No more hanging on \"installing\".","version":"1.61","versionCode":61}
