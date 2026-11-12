@@ -27,7 +27,7 @@ class UpdateInstallActivity : Activity() {
                 val confirmation = if (Build.VERSION.SDK_INT >= 33) {
                     intent?.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
                 } else {
-                    @Suppress("DEPRECATION") intent?.getParcelableExtra(Intent.EXTRA_INTENT)
+                    @Suppress("DEPRECATION") intent?.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
                 }
                 if (confirmation != null) {
                     runCatching {

@@ -88,7 +88,22 @@ jobs:
 
       - name: Build debug APK
         shell: bash
-        run: gradle :app:assembleDebug --stacktrace --no-daemon
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug --stacktrace --no-daemon 2>&1 | tee "${RUNNER_TEMP}/gradle-build.log"
+
+      - name: Publish build errors to summary
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f "${RUNNER_TEMP}/gradle-build.log" ]; then
+            {
+              echo '## Gradle build failure (tail)'
+              echo '```'
+              tail -n 120 "${RUNNER_TEMP}/gradle-build.log"
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
 
       - name: Verify debug APK
         id: verify_apk

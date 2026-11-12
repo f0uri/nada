@@ -259,7 +259,7 @@ class AppUpdateManager private constructor(private val app: Context) {
                 val intent = Intent(app, UpdateInstallActivity::class.java)
                     .setAction(UpdateInstallActivity.ACTION)
                 val flags = PendingIntent.FLAG_UPDATE_CURRENT or
-                    if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+                    (if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0)
                 val pending = PendingIntent.getActivity(app, id, intent, flags)
                 session.commit(pending.intentSender)
             }
@@ -273,26 +273,26 @@ class AppUpdateManager private constructor(private val app: Context) {
     }
 
     /** Reject an APK that is not this app, not newer, or not signed by the installed key. */
+    @Suppress("DEPRECATION")
     private fun validateApk(apk: File, update: Update) {
         val pm = app.packageManager
         val flags = if (Build.VERSION.SDK_INT >= 28) android.content.pm.PackageManager.GET_SIGNING_CERTIFICATES
-            else @Suppress("DEPRECATION") android.content.pm.PackageManager.GET_SIGNATURES
+            else android.content.pm.PackageManager.GET_SIGNATURES
         val info = pm.getPackageArchiveInfo(apk.absolutePath, flags) ?: throw IOException("bad apk")
         if (info.packageName != app.packageName) throw IOException("package")
-        val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else {
-            @Suppress("DEPRECATION") info.versionCode.toLong()
-        }
+        val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
         if (code != update.code || code <= installedCode()) throw IOException("version")
         val installed = pm.getPackageInfo(app.packageName, flags)
         if (signatures(info) != signatures(installed)) throw IOException("signature")
     }
 
+    @Suppress("DEPRECATION")
     private fun signatures(info: android.content.pm.PackageInfo): Set<String> {
         val signs = if (Build.VERSION.SDK_INT >= 28) {
             val signing = info.signingInfo ?: return emptySet()
             if (signing.hasMultipleSigners()) signing.apkContentsSigners else signing.signingCertificateHistory
         } else {
-            @Suppress("DEPRECATION") info.signatures
+            info.signatures
         } ?: return emptySet()
         return signs.map { android.util.Base64.encodeToString(it.toByteArray(), android.util.Base64.NO_WRAP) }.toSet()
     }
