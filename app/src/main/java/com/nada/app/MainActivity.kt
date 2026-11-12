@@ -125,6 +125,9 @@ class MainActivity : AppCompatActivity() {
         acceptIncoming(intent)
         restoreBubble()
         web.postDelayed({ startBannerSafely() }, 700)
+        web.postDelayed({
+            if (!isFinishing && !isDestroyed) AppUpdateManager.get(this).check(this, manual = false)
+        }, 1800)
 
         onBackPressedDispatcher.addCallback(
             this,
@@ -218,6 +221,13 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun openBattery() {
             runOnUiThread { askBattery() }
+        }
+
+        @JavascriptInterface
+        fun checkForUpdates() {
+            runOnUiThread {
+                if (!isFinishing && !isDestroyed) AppUpdateManager.get(this@MainActivity).check(this@MainActivity, manual = true)
+            }
         }
     }
 
@@ -316,6 +326,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         runCatching { banner?.resume() }
+        AppUpdateManager.get(this).resumePending(this)
         offerClipboard()
     }
 
@@ -388,6 +399,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        AppUpdateManager.get(this).dismiss()
         banner?.destroy()
         banner = null
         if (::server.isInitialized) {

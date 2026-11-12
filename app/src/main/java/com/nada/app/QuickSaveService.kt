@@ -85,23 +85,11 @@ class QuickSaveService : Service() {
             return
         }
         goForeground(getString(R.string.save_stage_video), busy = true)
-        val result = runCatching { instagram.prepareSave(job.url) }.recoverCatching { err ->
-            val retry = err !is InstagramClient.ApiException ||
-                err.status == 429 ||
-                err.code in setOf("rate", "session", "upstream", "cdn", "network")
-            if (!retry) throw err
-            Thread.sleep(400)
-            instagram.prepareSave(job.url)
-        }
+        // Listnr is the only resolve source. A failure uses the existing error
+        // notification; there is no resolver retry chain or page-sniffing fallback.
+        val result = runCatching { instagram.prepareSave(job.url) }
         result.fold(
             onSuccess = { batch ->
-                val wantsVideo = looksLikeReel(job.url)
-                val hasVideo = batch.files.any { it.mime.contains("video") || it.name.endsWith(".mp4") }
-                if (wantsVideo && !hasVideo) {
-                    goForeground(getString(R.string.save_stage_video), busy = true)
-                    val sniffed = runCatching { sniffAndStore(job.url) }.getOrDefault(false)
-                    if (sniffed) return
-                }
                 try {
                     goForeground(getString(R.string.save_stage_file), busy = true)
                     for (file in batch.files) writeRemote(file)
@@ -109,17 +97,12 @@ class QuickSaveService : Service() {
                     val detail = getString(R.string.save_files, batch.files.size)
                     notifyDone("$who · $detail", error = false)
                 } catch (ex: InstagramClient.ApiException) {
-                    val sniffed = runCatching { sniffAndStore(job.url) }.getOrDefault(false)
-                    if (sniffed) return
                     notifyDone(mapError(ex), error = true)
                 } catch (_: Exception) {
                     notifyDone(getString(R.string.save_fail_net), error = true)
                 }
             },
             onFailure = { err ->
-                goForeground(getString(R.string.save_stage_video), busy = true)
-                val sniffed = runCatching { sniffAndStore(job.url) }.getOrDefault(false)
-                if (sniffed) return
                 if (job.stream.isNotBlank()) {
                     goForeground(getString(R.string.save_stage_file), busy = true)
                     val ok = runCatching { saveStreamQuiet(job.stream) }.isSuccess
@@ -129,38 +112,6 @@ class QuickSaveService : Service() {
                 else notifyDone(getString(R.string.save_fail_net), error = true)
             },
         )
-    }
-
-    private fun looksLikeReel(url: String): Boolean {
-        val path = url.lowercase()
-        return path.contains("/reel") || path.contains("/share/") || path.contains("/reels/")
-    }
-
-    private fun sniffAndStore(url: String): Boolean {
-        val page = runCatching { instagram.pageUrl(url) }.getOrDefault(url)
-        val code = IgLinks.shortcodeFrom(page)
-        val pages = buildList {
-            if (!code.isNullOrBlank()) {
-                add("https://www.instagram.com/reel/$code/embed/")
-                add("https://www.instagram.com/p/$code/embed/")
-                add("https://www.instagram.com/reel/$code/")
-            }
-            add(page)
-            add(url)
-        }
-        val hit = PageMediaSniffer(this).sniff(pages) ?: return false
-        val mime = hit.mime
-        val ext = if (mime.contains("mp4") || mime.contains("video")) "mp4" else "jpg"
-        val name = "instagram_${System.currentTimeMillis()}.$ext"
-        val remote = instagram.pullFile(hit.url)
-        try {
-            val body = remote.body ?: return false
-            storeBytes(body.byteStream(), name, mime)
-        } finally {
-            remote.close()
-        }
-        notifyDone(name, error = false)
-        return true
     }
 
     private fun shouldSaveStream(job: SaveJob): Boolean {

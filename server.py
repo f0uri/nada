@@ -31,11 +31,19 @@ _FALLBACK_SECRET = bytes((
 SECRET = (os.environ.get("NADA_MEDIA_SECRET") or "").encode() or _FALLBACK_SECRET
 NADA_API_KEY = (os.environ.get("NADA_API_KEY") or "").strip()
 TOKEN_TTL = 45 * 60
-DOC_ID = "27128499623469141"
-POLARIS_DOC = "27130156389949648"
 APP_ID = "936619743392459"
+LISTNR_ENDPOINT = "https://bff.listnr.tech/backend/user/getInfoYT"
+LISTNR_HEADERS = {
+    "accept": "application/json",
+    "content-type": "application/json",
+    "origin": "https://listnr.ai",
+    "referer": "https://listnr.ai/",
+    "user-agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
+    ),
+}
 IG_ANDROID_APP_ID = "567067343352427"
-PROFILE_DOC_IDS = ("27937681195819736", "26672929172408668")
 
 UA = (
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) "
@@ -49,11 +57,6 @@ IG_MOBILE_UA = (
 URL_RE = re.compile(
     r"(?:https?://)?(?:www\.|m\.|l\.)?(?:instagram\.com|instagr\.am)"
     r"/(?:[^/?#]+/)?(?:p|tv|reel|reels)/([A-Za-z0-9_-]+)",
-    re.I,
-)
-STORY_RE = re.compile(
-    r"(?:https?://)?(?:www\.|m\.|l\.)?(?:instagram\.com|instagr\.am)/stories/"
-    r"(?:highlights/(\d+)|([A-Za-z0-9._]+)/(\d+)|([A-Za-z0-9._]+)/?)",
     re.I,
 )
 SHORT_RE = re.compile(r"^[A-Za-z0-9_-]{5,32}$")
@@ -103,7 +106,6 @@ class InstagramSession:
         self._csrf = ""
         self._lsd = ""
         self._csrf_at = 0.0
-        self._post_cache: dict[str, dict[str, Any]] = {}
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(10.0, connect=5.0),
             follow_redirects=True,
@@ -141,101 +143,7 @@ class InstagramSession:
             self._csrf_at = time.time()
             return csrf
 
-    async def web_info(self, shortcode: str) -> dict[str, Any]:
-        csrf = await self.ensure()
-        variables = json.dumps(
-            {
-                "shortcode": shortcode,
-                "__relay_internal__pv__PolarisAIGMMediaWebLabelEnabledrelayprovider": False,
-            },
-            separators=(",", ":"),
-        )
-        headers = {
-            "content-type": "application/x-www-form-urlencoded",
-            "x-ig-app-id": APP_ID,
-            "x-asbd-id": "359341",
-            "x-csrftoken": csrf,
-            "x-ig-www-claim": "0",
-            "x-requested-with": "XMLHttpRequest",
-            "origin": "https://www.instagram.com",
-            "referer": f"https://www.instagram.com/p/{shortcode}/",
-        }
-        body = f"variables={quote(variables)}&doc_id={DOC_ID}"
-        r = await self.client.post(
-            "https://www.instagram.com/graphql/query",
-            headers=headers,
-            content=body,
-        )
-        if r.status_code in (401, 403):
-            self._csrf_at = 0
-            csrf = await self.ensure()
-            headers["x-csrftoken"] = csrf
-            r = await self.client.post(
-                "https://www.instagram.com/graphql/query",
-                headers=headers,
-                content=body,
-            )
-        if r.status_code == 429:
-            raise HTTPException(429, "rate")
-        if r.status_code >= 400:
-            raise HTTPException(502, "upstream")
-        try:
-            payload = r.json()
-        except Exception as exc:
-            raise HTTPException(502, "upstream") from exc
-        items = (
-            (payload.get("data") or {})
-            .get("xdt_api__v1__media__shortcode__web_info", {})
-            .get("items")
-            or []
-        )
-        if items:
-            return items[0]
-        polaris = await self.polaris_media(shortcode)
-        if polaris:
-            return polaris
-        raise HTTPException(404, "missing")
 
-    async def polaris_media(self, shortcode: str) -> dict[str, Any] | None:
-        try:
-            csrf = await self.ensure()
-        except Exception:
-            return None
-        pk = shortcode_to_media_id(shortcode)
-        if not pk:
-            return None
-        body = {
-            "lsd": self._lsd,
-            "fb_api_caller_class": "RelayModern",
-            "fb_api_req_friendly_name": "PolarisLoggedOutDesktopWWWPostRootContentQuery",
-            "server_timestamps": "true",
-            "variables": json.dumps({"media_id": pk}, separators=(",", ":")),
-            "doc_id": POLARIS_DOC,
-        }
-        try:
-            r = await self.client.post(
-                "https://www.instagram.com/api/graphql",
-                headers={
-                    "content-type": "application/x-www-form-urlencoded",
-                    "x-ig-app-id": APP_ID,
-                    "x-asbd-id": "359341",
-                    "x-csrftoken": csrf,
-                    "x-fb-lsd": self._lsd,
-                    "x-fb-friendly-name": "PolarisLoggedOutDesktopWWWPostRootContentQuery",
-                    "x-requested-with": "XMLHttpRequest",
-                    "origin": "https://www.instagram.com",
-                    "referer": f"https://www.instagram.com/reel/{shortcode}/",
-                },
-                data=body,
-            )
-            payload = r.json()
-        except Exception:
-            return None
-        polaris = ((payload.get("data") or {}).get("xig_polaris_media")) or {}
-        item = polaris.get("if_not_gated_logged_out") or polaris
-        if isinstance(item, dict) and (item.get("pk") or item.get("code")):
-            return item
-        return None
 
     async def profile(self, username: str) -> dict[str, Any]:
         user = await self.web_profile(username)
@@ -314,59 +222,41 @@ class InstagramSession:
             "pk": uid,
         }
 
-    async def graphql_profile(self, user_id: str) -> dict[str, Any] | None:
-        csrf = await self.ensure()
-        variables = json.dumps(
-            {
-                "id": str(user_id),
-                "render_surface": "PROFILE",
-                "__relay_internal__pv__PolarisCannesGuardianExperienceEnabledrelayprovider": True,
-                "__relay_internal__pv__PolarisCASB976ProfileEnabledrelayprovider": False,
-                "__relay_internal__pv__PolarisRepostsConsumptionEnabledrelayprovider": False,
-                "__relay_internal__pv__PolarisWebSchoolsEnabledrelayprovider": False,
-                "enable_integrity_filters": True,
-            },
-            separators=(",", ":"),
-        )
-        headers = {
-            "content-type": "application/x-www-form-urlencoded",
-            "x-ig-app-id": APP_ID,
-            "x-asbd-id": "359341",
-            "x-csrftoken": csrf,
-            "x-ig-www-claim": "0",
-            "x-requested-with": "XMLHttpRequest",
-            "origin": "https://www.instagram.com",
-            "referer": "https://www.instagram.com/",
-        }
-        body_base = f"variables={quote(variables)}&doc_id="
-        for doc_id in PROFILE_DOC_IDS:
-            try:
-                r = await self.client.post(
-                    "https://www.instagram.com/graphql/query",
-                    headers=headers,
-                    content=body_base + doc_id,
-                )
-            except Exception:
-                continue
-            if r.status_code >= 400:
-                continue
-            try:
-                payload = r.json()
-            except Exception:
-                continue
-            user = ((payload.get("data") or {}).get("user")) or {}
-            if user.get("username") or user.get("pk") or user.get("id"):
-                return user
-        return None
 
     async def enrich_profile(self, user: dict[str, Any]) -> dict[str, Any]:
-        uid = str(user.get("id") or user.get("pk") or "")
-        if uid and not extract_user_bio(user):
-            extra = await self.graphql_profile(uid)
-            if extra:
-                merge_profile_user(user, extra)
         user["biography"] = compose_profile_bio(user)
         return user
+
+    async def listnr_video(self, post_url: str) -> dict[str, Any]:
+        """The only reel/post media resolver. No fallback source."""
+        try:
+            r = await self.client.post(
+                LISTNR_ENDPOINT,
+                headers=LISTNR_HEADERS,
+                json={"url": post_url, "platform": "instagram", "type": "video"},
+                timeout=httpx.Timeout(15.0),
+            )
+        except httpx.HTTPError as exc:
+            raise HTTPException(502, "network") from exc
+        if r.status_code == 429:
+            raise HTTPException(429, "rate")
+        if r.status_code != 200:
+            raise HTTPException(502, "upstream")
+        try:
+            payload = r.json()
+        except Exception as exc:
+            raise HTTPException(502, "upstream") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(502, "upstream")
+        url = payload.get("url")
+        if not isinstance(url, str) or not url.strip():
+            raise HTTPException(404, "empty")
+        data = payload.get("data")
+        thumb = data.get("thumb") if isinstance(data, dict) else None
+        return {
+            "url": url.strip(),
+            "thumb": thumb.strip() if isinstance(thumb, str) else "",
+        }
 
     async def _ig_get(self, url: str, referer: str, mobile: bool = False) -> dict[str, Any] | None:
         try:
@@ -393,183 +283,8 @@ class InstagramSession:
             return None
         return data if isinstance(data, dict) else None
 
-    async def stories(self, user: dict[str, Any]) -> list[dict[str, Any]]:
-        user_id = "".join(ch for ch in str(user.get("id") or user.get("pk") or "") if ch.isdigit())[:20]
-        items: list[dict[str, Any]] = []
-        seen: set[str] = set()
 
-        def add_node(node: dict[str, Any], title: str) -> None:
-            packed = pack_media(node, len(items) + 1)
-            if not packed:
-                return
-            key = str(packed.get("id") or "")
-            if key and key in seen:
-                return
-            if key:
-                seen.add(key)
-            packed["title"] = title[:18] or "قصة"
-            items.append(packed)
 
-        def add_cover(hid: str, title: str, cover: str) -> None:
-            if not cover or not host_ok(cover):
-                return
-            key = f"cover:{hid or title}"
-            if key in seen:
-                return
-            seen.add(key)
-            items.append({
-                "id": hid or title,
-                "index": len(items) + 1,
-                "kind": "image",
-                "preview": sign_url(cover),
-                "file": sign_url(cover),
-                "ext": "jpg",
-                "title": (title or "هايلايت")[:18],
-            })
-
-        if user_id:
-            live_urls = (
-                (f"https://i.instagram.com/api/v1/feed/user/{quote(user_id)}/reel_media/", True),
-                (f"https://i.instagram.com/api/v1/feed/user/{quote(user_id)}/story/", True),
-                (f"https://i.instagram.com/api/v1/feed/reels_media/?reel_ids={quote(user_id)}", True),
-                (f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids={quote(user_id)}", False),
-                (f"https://www.instagram.com/api/v1/feed/user/{quote(user_id)}/story/", False),
-            )
-            for url, mobile in live_urls:
-                data = await self._ig_get(url, "https://www.instagram.com/", mobile=mobile)
-                before = len(items)
-                for node in collect_reel_nodes(data, user_id):
-                    add_node(node, "قصة")
-                if len(items) > before:
-                    break
-
-            tray_urls = (
-                (f"https://i.instagram.com/api/v1/highlights/{quote(user_id)}/highlights_tray/", True),
-                (f"https://www.instagram.com/api/v1/highlights/{quote(user_id)}/highlights_tray/", False),
-            )
-            highlights: list[Any] = []
-            for tray_url, mobile in tray_urls:
-                tray_data = await self._ig_get(tray_url, "https://www.instagram.com/", mobile=mobile)
-                highlights = (tray_data or {}).get("tray") or []
-                if highlights:
-                    break
-            for hl in highlights[:12]:
-                if not isinstance(hl, dict):
-                    continue
-                hid = str(hl.get("id") or "").replace("highlight:", "")
-                cover = (
-                    ((hl.get("cover_media") or {}).get("cropped_image_version") or {}).get("url")
-                    or ((hl.get("cover_media") or {}).get("thumbnail_src"))
-                    or ""
-                )
-                title = str(hl.get("title") or "هايلايت")
-                added = 0
-                if hid:
-                    detail = await self._ig_get(
-                        f"https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:{quote(hid)}",
-                        "https://www.instagram.com/",
-                        mobile=True,
-                    ) or await self._ig_get(
-                        f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:{quote(hid)}",
-                        "https://www.instagram.com/",
-                    )
-                    for node in collect_reel_nodes(detail, f"highlight:{hid}"):
-                        before = len(items)
-                        add_node(node, title)
-                        if len(items) > before:
-                            added += 1
-                if added == 0:
-                    add_cover(hid, title, cover)
-
-        if not items:
-            edges = ((user.get("edge_highlight_reels") or {}).get("edges")) or []
-            for edge in edges[:12]:
-                node = (edge or {}).get("node") or {}
-                cover = ((node.get("cover_media") or {}).get("thumbnail_src")) or ""
-                title = str(node.get("title") or "هايلايت")
-                add_cover(str(node.get("id") or title), title, cover)
-        return items[:24]
-
-    async def media_info(self, media_id: str) -> dict[str, Any] | None:
-        mid = "".join(ch for ch in media_id if ch.isdigit())
-        if not mid:
-            return None
-        for url, mobile in (
-            (f"https://www.instagram.com/api/v1/media/{mid}/info/", False),
-            (f"https://i.instagram.com/api/v1/media/{mid}/info/", True),
-        ):
-            data = await self._ig_get(url, "https://www.instagram.com/", mobile=mobile)
-            items = (data or {}).get("items") or []
-            if items and isinstance(items[0], dict):
-                return items[0]
-        code = media_id_to_shortcode(mid)
-        if not code:
-            return None
-        try:
-            return await self.web_info(code)
-        except HTTPException:
-            return None
-
-    async def resolve_story(self, raw: str) -> dict[str, Any]:
-        parsed = parse_story(raw)
-        if not parsed:
-            raise HTTPException(400, "url")
-        if parsed["kind"] == "highlight":
-            hid = parsed["id"]
-            detail = await self._ig_get(
-                f"https://i.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:{quote(hid)}",
-                "https://www.instagram.com/",
-                mobile=True,
-            ) or await self._ig_get(
-                f"https://www.instagram.com/api/v1/feed/reels_media/?reel_ids=highlight:{quote(hid)}",
-                "https://www.instagram.com/",
-            )
-            nodes = collect_reel_nodes(detail, f"highlight:{hid}")
-            if not nodes:
-                raise HTTPException(404, "missing")
-            first = nodes[0]
-            post = pack_post(first if len(nodes) == 1 else {**first, "carousel_media": nodes, "media_type": 8}, hid)
-            post["kind"] = "carousel" if len(nodes) > 1 else post["kind"]
-            post["source"] = f"https://www.instagram.com/stories/highlights/{hid}/"
-            if not post["media"]:
-                raise HTTPException(404, "empty")
-            return post
-        media_id = parsed.get("id") or ""
-        username = parsed.get("username") or ""
-        item = await self.media_info(media_id) if media_id else None
-        if not item and username:
-            user = await self.profile(username)
-            stories = await self.stories(user)
-            if not stories:
-                raise HTTPException(404, "missing")
-            owner = {
-                "username": user.get("username") or username,
-                "name": user.get("full_name") or "",
-                "avatar": None,
-            }
-            avatar = user.get("profile_pic_url_hd") or user.get("profile_pic_url") or ""
-            if isinstance(avatar, str) and host_ok(avatar):
-                owner["avatar"] = sign_url(avatar)
-            return {
-                "ok": True,
-                "shortcode": media_id or username,
-                "kind": "carousel" if len(stories) > 1 else stories[0].get("kind") or "photo",
-                "taken_at": None,
-                "likes": None,
-                "comments": None,
-                "caption": "",
-                "owner": owner,
-                "media": stories,
-                "source": f"https://www.instagram.com/stories/{username}/",
-            }
-        if not item:
-            raise HTTPException(404, "missing")
-        code = item.get("code") or media_id_to_shortcode(media_id) or media_id
-        post = pack_post(item, code)
-        post["source"] = f"https://www.instagram.com/stories/{username or item.get('user', {}).get('username') or ''}/{media_id}/"
-        if not post["media"]:
-            raise HTTPException(404, "empty")
-        return post
 
     async def user_posts(self, user: dict[str, Any], cursor: str | None = None) -> tuple[list[dict[str, Any]], str]:
         posts: list[dict[str, Any]] = []
@@ -585,7 +300,6 @@ class InstagramSession:
             )
             for node in (data or {}).get("items") or []:
                 if isinstance(node, dict):
-                    self.remember_post(node)
                     packed = pack_grid_item(node)
                     if packed:
                         posts.append(packed)
@@ -596,7 +310,6 @@ class InstagramSession:
             for edge in edges:
                 node = (edge or {}).get("node") or edge
                 if isinstance(node, dict):
-                    self.remember_post(node)
                     packed = pack_grid_item(node)
                     if packed:
                         posts.append(packed)
@@ -605,22 +318,7 @@ class InstagramSession:
                 next_cursor = page.get("end_cursor") or ""
         return posts, next_cursor
 
-    def remember_post(self, node: dict[str, Any]) -> None:
-        shortcode = str(node.get("code") or node.get("shortcode") or "")
-        if not shortcode:
-            return
-        try:
-            packed = pack_post(node, shortcode)
-        except Exception:
-            return
-        if packed.get("media"):
-            self._post_cache[shortcode] = packed
-            while len(self._post_cache) > 48:
-                self._post_cache.pop(next(iter(self._post_cache)))
 
-    def cached_post(self, shortcode: str) -> dict[str, Any] | None:
-        found = self._post_cache.get(shortcode)
-        return dict(found) if found else None
 
 
 ig = InstagramSession()
@@ -1071,193 +769,23 @@ def clean_media_url(raw: str) -> str:
     return decode_entities(raw or "").replace("\\/", "/").replace("\\u0026", "&").strip().strip("\"'")
 
 
-def videos_from_dash(manifest: str) -> list[dict[str, Any]]:
-    if not manifest:
-        return []
-    xml = decode_entities(manifest)
-    out: list[dict[str, Any]] = []
-    for match in re.finditer(
-        r"<Representation\b([^>]*)>.*?<BaseURL>([^<]+)</BaseURL>",
-        xml,
-        re.I | re.S,
-    ):
-        attrs, base = match.group(1), match.group(2)
-        mime_m = re.search(r'mimeType="([^"]+)"', attrs, re.I)
-        mime = mime_m.group(1) if mime_m else ""
-        if mime.lower().startswith("audio"):
-            continue
-        url = clean_media_url(decode_entities(base))
-        if not url or not host_ok(url):
-            continue
-        width_m = re.search(r'width="(\d+)"', attrs)
-        height_m = re.search(r'height="(\d+)"', attrs)
-        out.append({
-            "url": url,
-            "width": int(width_m.group(1)) if width_m else 0,
-            "height": int(height_m.group(1)) if height_m else 0,
-        })
-    return out
-
-
-def best_video(node: dict[str, Any]) -> dict[str, Any] | None:
-    raw_vers = node.get("video_versions")
-    vers = []
-    for v in (raw_vers or []):
-        if not isinstance(v, dict):
-            continue
-        url = clean_media_url(str(v.get("url") or ""))
-        if url and host_ok(url):
-            item = dict(v)
-            item["url"] = url
-            vers.append(item)
-    direct = clean_media_url(str(node.get("video_url") or node.get("playback_url") or ""))
-    if direct and host_ok(direct):
-        vers.append({
-            "url": direct,
-            "width": node.get("original_width") or ((node.get("dimensions") or {}).get("width")),
-            "height": node.get("original_height") or ((node.get("dimensions") or {}).get("height")),
-        })
-    if not vers:
-        vers = videos_from_dash(str(node.get("video_dash_manifest") or ""))
-    if not vers:
-        return None
-    vers.sort(key=lambda v: int(v.get("width") or 0) * int(v.get("height") or 0), reverse=True)
-    return vers[0]
-
-
-def kind_of(item: dict[str, Any]) -> str:
-    product = (item.get("product_type") or "").lower()
-    media_type = item.get("media_type")
-    if product == "clips" or product == "clips_draft":
-        return "reel"
-    if media_type == 8 or item.get("carousel_media"):
-        return "carousel"
-    if media_type == 2 or item.get("video_versions"):
-        return "video"
-    return "photo"
-
-
-def collect_reel_nodes(data: dict[str, Any] | None, user_id: str = "") -> list[dict[str, Any]]:
-    if not isinstance(data, dict):
-        return []
-    nodes: list[dict[str, Any]] = []
-    items = data.get("items")
-    if isinstance(items, list):
-        nodes.extend(n for n in items if isinstance(n, dict))
-    reel = data.get("reel")
-    if isinstance(reel, dict):
-        nodes.extend(n for n in (reel.get("items") or []) if isinstance(n, dict))
-    reels = data.get("reels")
-    if isinstance(reels, dict):
-        keys = [user_id, str(user_id)]
-        if user_id:
-            keys.append(f"highlight:{user_id.replace('highlight:', '')}")
-        found = False
-        for key in keys:
-            tray = reels.get(key)
-            if isinstance(tray, dict):
-                nodes.extend(n for n in (tray.get("items") or []) if isinstance(n, dict))
-                found = True
-        if not found:
-            for tray in reels.values():
-                if isinstance(tray, dict):
-                    nodes.extend(n for n in (tray.get("items") or []) if isinstance(n, dict))
-    media = data.get("reels_media")
-    if isinstance(media, list):
-        for tray in media:
-            if isinstance(tray, dict):
-                nodes.extend(n for n in (tray.get("items") or []) if isinstance(n, dict))
-    return nodes
-
-
-def pack_media(node: dict[str, Any], index: int) -> dict[str, Any] | None:
-    video = best_video(node)
-    image = best_image(node)
-    if not video and not image:
-        return None
-    kind = "video" if video else "image"
-    src = video or image or {}
-    thumb = image or {}
-    return {
-        "id": str(node.get("pk") or node.get("id") or index),
-        "index": index,
-        "kind": kind,
-        "width": src.get("width") or node.get("original_width"),
-        "height": src.get("height") or node.get("original_height"),
-        "preview": sign_url(thumb.get("url") or src.get("url")),
-        "file": sign_url(src.get("url")),
-        "ext": "mp4" if kind == "video" else "jpg",
-    }
-
-
-def pack_post(item: dict[str, Any], shortcode: str) -> dict[str, Any]:
-    user = item.get("user") or {}
-    caption = item.get("caption")
-    text = caption.get("text") if isinstance(caption, dict) else (caption or "")
-    children = item.get("carousel_media") or []
-    nodes = children if children else [item]
-    media = []
-    for i, node in enumerate(nodes, start=1):
-        packed = pack_media(node, i)
-        if packed:
-            media.append(packed)
-    avatar = user.get("profile_pic_url") or user.get("profile_pic_url_hd")
-    kind = kind_of(item)
-    return {
-        "ok": True,
-        "shortcode": item.get("code") or shortcode,
-        "kind": kind,
-        "taken_at": item.get("taken_at"),
-        "likes": item.get("like_count"),
-        "comments": item.get("comment_count"),
-        "caption": text or "",
-        "owner": {
-            "username": user.get("username") or "",
-            "name": user.get("full_name") or "",
-            "avatar": sign_url(avatar) if avatar and host_ok(avatar) else None,
-        },
-        "media": media,
-        "source": f"https://www.instagram.com/{'reel' if kind == 'reel' else 'p'}/{item.get('code') or shortcode}/",
-    }
 
 
 
-def parse_story(raw: str) -> dict[str, str] | None:
-    match = STORY_RE.search((raw or "").strip())
-    if not match:
-        return None
-    highlight, user_with_id, media_id, user_only = match.groups()
-    if highlight:
-        return {"kind": "highlight", "username": "", "id": highlight}
-    if user_with_id and media_id:
-        return {"kind": "story", "username": user_with_id, "id": media_id}
-    if user_only and user_only.lower() not in RESERVED:
-        return {"kind": "user", "username": user_only, "id": ""}
-    return None
 
 
-def shortcode_to_media_id(code: str) -> str:
-    value = 0
-    for ch in code or "":
-        idx = ALPHABET.find(ch)
-        if idx < 0:
-            return ""
-        value = value * 64 + idx
-    return str(value) if value > 0 else ""
 
 
-def media_id_to_shortcode(media_id: str) -> str:
-    digits = "".join(ch for ch in (media_id or "") if ch.isdigit())
-    if not digits:
-        return ""
-    value = int(digits)
-    if value <= 0:
-        return ""
-    out = []
-    while value > 0:
-        value, rem = divmod(value, 64)
-        out.append(ALPHABET[rem])
-    return "".join(reversed(out))
+
+
+
+
+
+
+
+
+
+
 
 
 def tidy_ig_url(raw: str) -> str:
@@ -1317,100 +845,74 @@ def needs_expand(url: str) -> bool:
     )
 
 
-def looks_like_post(url: str) -> bool:
-    return bool(shortcode_from(url) or STORY_RE.search(url))
 
 
-async def fetch_ig_page(url: str) -> tuple[str, str]:
-    current = url
-    html = ""
-    final = url
-    for _ in range(5):
-        if not is_ig_fetch_url(current):
-            raise HTTPException(400, "url")
-        r = await ig.client.get(
-            current,
-            headers={"Accept": "text/html,application/xhtml+xml"},
-            follow_redirects=False,
-        )
-        loc = r.headers.get("location") or ""
-        if r.is_redirect and loc:
-            nxt = urljoin(current, loc)
-            tidy = tidy_ig_url(nxt) or nxt
-            if is_ig_fetch_url(tidy):
-                current = tidy
-                continue
-            if is_ig_fetch_url(nxt):
-                current = nxt
-                continue
-            break
-        html = r.text or ""
-        final = tidy_ig_url(str(r.url)) or current
-        break
-    return final, html
+
+
+
+
 
 
 async def expand_share(raw: str) -> str:
-    start = tidy_ig_url(raw) or ""
-    if not start or not is_ig_fetch_url(start):
+    """Expand Instagram share/login wrappers using redirects only."""
+    current = tidy_ig_url(raw) or ""
+    if not current or not is_ig_fetch_url(current):
         raise HTTPException(400, "url")
-    if not needs_expand(start) and shortcode_from(start):
-        return start
-    try:
-        head = await ig.client.get(start, follow_redirects=False)
-        loc = head.headers.get("location") or ""
-        if loc:
-            nxt = tidy_ig_url(urljoin(start, loc)) or ""
-            if nxt and is_ig_fetch_url(nxt) and shortcode_from(nxt):
-                return nxt
-        final, html = await fetch_ig_page(start)
-        if shortcode_from(final):
-            return final
-        og = re.search(r'property="og:url" content="([^"]+)"', html)
-        if og:
-            from_og = tidy_ig_url(og.group(1))
-            if from_og and is_ig_fetch_url(from_og) and shortcode_from(from_og):
-                return from_og
-        for match in re.finditer(
-            r"https?://(?:www\.)?instagram\.com/(?:[A-Za-z0-9._]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]{5,32})",
-            html,
-            re.I,
-        ):
-            if "/share/" in match.group(0).lower():
-                continue
-            if match.group(1).lower() in SKIP_SEGMENTS:
-                continue
-            return f"https://www.instagram.com/reel/{match.group(1)}/"
-        return final or start
-    except HTTPException:
-        raise
-    except Exception:
-        return start
+    for _ in range(5):
+        if shortcode_from(current):
+            return current
+        if not needs_expand(current):
+            return current
+        try:
+            r = await ig.client.get(current, follow_redirects=False)
+        except httpx.HTTPError as exc:
+            raise HTTPException(502, "network") from exc
+        loc = r.headers.get("location") or ""
+        if not loc:
+            return current
+        current = tidy_ig_url(urljoin(current, loc)) or urljoin(current, loc)
+        if not is_ig_fetch_url(current):
+            raise HTTPException(400, "url")
+    return current
+
+
+def pack_listnr(video: dict[str, Any], shortcode: str, source: str) -> dict[str, Any]:
+    url = video["url"]
+    if not host_ok(url):
+        raise HTTPException(502, "upstream")
+    thumb = video.get("thumb") or ""
+    kind = "reel" if "/reel" in source.lower() else "video"
+    return {
+        "ok": True,
+        "shortcode": shortcode,
+        "kind": kind,
+        "taken_at": None,
+        "likes": None,
+        "comments": None,
+        "caption": "",
+        "owner": {"username": "instagram", "name": "", "avatar": None},
+        "media": [{
+            "id": "1",
+            "index": 1,
+            "kind": "video",
+            "quality": "original",
+            "downloadUrl": url,
+            "preview": sign_url(thumb) if thumb and host_ok(thumb) else None,
+            "file": sign_url(url),
+            "ext": "mp4",
+        }],
+        "source": source,
+    }
 
 
 @app.post("/api/resolve")
 async def resolve(payload: ResolveIn, request: Request):
     require_key(request)
     hit_rate(client_ip(request))
-    try:
-        url = await expand_share(payload.url)
-        if parse_story(url):
-            return await ig.resolve_story(url)
-        shortcode = parse_shortcode(url)
-        cached = ig.cached_post(shortcode)
-        if cached and cached.get("media"):
-            return cached
-        item = await ig.web_info(shortcode)
-    except HTTPException:
-        raise
-    except httpx.HTTPError as exc:
-        raise HTTPException(502, "network") from exc
-    except RuntimeError as exc:
-        raise HTTPException(502, "session") from exc
-    post = pack_post(item, shortcode)
-    if not post["media"]:
-        raise HTTPException(404, "empty")
-    return post
+    url = await expand_share(payload.url)
+    shortcode = parse_shortcode(url)
+    video = await ig.listnr_video(f"https://www.instagram.com/reel/{shortcode}/")
+    return pack_listnr(video, shortcode, url)
 
 
 @app.post("/api/profile")

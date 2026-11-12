@@ -82,29 +82,9 @@ class NadaServer(
         } catch (_: Exception) {
             ""
         }
-        val result = try {
-            instagram.resolve(url)
-        } catch (ex: InstagramClient.ApiException) {
-            if (ex.code !in setOf("missing", "empty")) throw ex
-            recoverFromPage(url) ?: throw ex
-        }
+        // Listnr is the only resolve source; failures go straight to the existing UI error.
+        val result = instagram.resolve(url)
         return withSecurity(newFixedLengthResponse(Response.Status.OK, "application/json; charset=utf-8", result.toString()))
-    }
-
-    private fun recoverFromPage(url: String): JSONObject? {
-        val page = runCatching { instagram.pageUrl(url) }.getOrDefault(url)
-        val code = IgLinks.shortcodeFrom(page)
-        val pages = buildList {
-            if (!code.isNullOrBlank()) {
-                add("https://www.instagram.com/reel/$code/embed/")
-                add("https://www.instagram.com/p/$code/embed/")
-                add("https://www.instagram.com/reel/$code/")
-            }
-            add(page)
-            add(url)
-        }
-        val hit = PageMediaSniffer(context).sniff(pages) ?: return null
-        return runCatching { instagram.postFromCdn(hit.url, hit.mime, page) }.getOrNull()
     }
 
     private fun readBody(session: IHTTPSession): String {

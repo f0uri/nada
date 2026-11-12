@@ -156,6 +156,9 @@ jobs:
           mkdir -p "${asset_dir}"
           asset_path="${asset_dir}/${asset_name}"
           cp "${source_apk}" "${asset_path}"
+          # Stable asset name used by version.json / in-app OTA.
+          stable_path="${asset_dir}/nada-debug.apk"
+          cp "${source_apk}" "${stable_path}"
           if [ ! -f "${asset_path}" ] || [ ! -s "${asset_path}" ]; then
             echo "ERROR: Failed to prepare the release APK asset."
             exit 1
@@ -170,6 +173,7 @@ jobs:
           echo "Prepared release asset: ${asset_path}"
           echo "asset_path=${asset_path}" >> "${GITHUB_OUTPUT}"
           echo "asset_name=${asset_name}" >> "${GITHUB_OUTPUT}"
+          echo "stable_path=${stable_path}" >> "${GITHUB_OUTPUT}"
 
       - name: Publish APK to GitHub Releases
         id: publish_release
@@ -217,9 +221,39 @@ jobs:
             --target "${GITHUB_SHA}" \
             --latest \
             --notes "${notes}" \
-            "${asset_path}"
+            "${asset_path}" \
+            "${{ steps.prepare_release.outputs.stable_path }}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "title=${title}" >> "${GITHUB_OUTPUT}"
+
+      - name: Sync OTA version manifest
+        if: steps.publish_release.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version_name="$(sed -n 's/^[[:space:]]*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          version_code="$(sed -n 's/^[[:space:]]*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -n 1)"
+          changelog="$(python3 -c 'import json; print(json.load(open("version.json"))["changelog"])')"
+          export VERSION_NAME="${version_name}" VERSION_CODE="${version_code}" CHANGELOG="${changelog}"
+          payload="$(python3 - <<'PY'
+          import base64, json, os
+          manifest = {
+              "version": os.environ["VERSION_NAME"],
+              "versionCode": int(os.environ["VERSION_CODE"]),
+              "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
+              "changelog": os.environ["CHANGELOG"],
+          }
+          print(base64.b64encode((json.dumps(manifest, indent=2) + "\n").encode()).decode())
+          PY
+          )"
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/contents/version.json?ref=main" --jq .sha)"
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/version.json" \
+            -f message="Update OTA manifest for build ${GITHUB_RUN_NUMBER} [skip ci]" \
+            -f content="${payload}" \
+            -f sha="${sha}" \
+            -f branch="main"
 
       - name: Report APK download result
         if: always() && steps.publish_release.conclusion != 'skipped'
