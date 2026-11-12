@@ -1,5 +1,6 @@
 """Offline contract tests for the listnr-only resolver (no live Instagram calls)."""
 import json
+import re
 from pathlib import Path
 
 import httpx
@@ -123,9 +124,12 @@ def test_no_old_resolve_references_remain():
 def test_version_manifest_matches_app_and_stable_asset():
     manifest = json.loads((ROOT / "version.json").read_text())
     gradle = (ROOT / "app/build.gradle.kts").read_text()
-    assert manifest["version"] == "1.57"
-    assert manifest["versionCode"] == 57
-    assert 'versionName = "1.57"' in gradle
-    assert "versionCode = 57" in gradle
+    # Derive from Gradle so a release bump does not need a test edit.
+    name = re.search(r'versionName = "([^"]+)"', gradle).group(1)
+    code = int(re.search(r"versionCode = (\d+)", gradle).group(1))
+    assert manifest["version"] == name
+    assert manifest["versionCode"] == code
+    assert f'versionName = "{name}"' in gradle
+    assert f"versionCode = {code}" in gradle
     assert manifest["apkUrl"] == "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk"
     assert manifest["changelog"]

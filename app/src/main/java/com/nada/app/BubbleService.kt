@@ -155,6 +155,9 @@ class BubbleService : Service() {
     }
 
     private fun saveInBackground() {
+        // One-tap reel download: only when the user enabled it AND Instagram is
+        // the foreground app. Everywhere else the original behaviour is intact.
+        if (Prefs.reelWatchOn(this) && ReelWatchService.takeBubbleTap()) return
         val last = Prefs.lastIgUrl(this)
         val started = runCatching { startActivity(QuickSaveActivity.intent(this)) }.isSuccess
         if (!started) {
@@ -253,6 +256,7 @@ object Prefs {
     private const val BUBBLE = "bubble_on"
     private const val VISIBLE = "bubble_visible"
     private const val LAST_URL = "last_ig_url"
+    private const val REEL_WATCH = "reel_watch_on"
 
     fun bubbleOn(context: Context): Boolean {
         return context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(BUBBLE, false)
@@ -278,5 +282,14 @@ object Prefs {
         val clean = IgLinks.fromText(url).ifBlank { IgLinks.tidy(url) }
         if (clean.isBlank()) return
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(LAST_URL, clean).apply()
+    }
+
+    /** Opt-in for one-tap download of the reel being watched. OFF by default. */
+    fun reelWatchOn(context: Context): Boolean {
+        return context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getBoolean(REEL_WATCH, false)
+    }
+
+    fun setReelWatch(context: Context, on: Boolean) {
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean(REEL_WATCH, on).apply()
     }
 }

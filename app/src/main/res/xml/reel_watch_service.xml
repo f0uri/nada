@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Narrow scope on purpose:
+    * packageNames: Instagram only, so no other app can ever deliver events here.
+    * accessibilityEventTypes: window state only, and the service ignores them.
+    * canRetrieveWindowContent: needed to find Share / Copy link by label.
+    * canPerformGestures is NOT requested: the service uses node ACTION_CLICK,
+      so it is incapable of tapping a screen coordinate.
+    * canTakeScreenshot is NOT requested: no pixels are ever captured.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:canPerformGestures="false"
+    android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="false"
+    android:description="@string/reel_watch_service_description"
+    android:isAccessibilityTool="false"
+    android:notificationTimeout="400"
+    android:packageNames="com.instagram.android"
+    android:summary="@string/reel_watch_service_summary" />
