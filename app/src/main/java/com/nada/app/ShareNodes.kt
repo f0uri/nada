@@ -41,10 +41,15 @@ object ShareNodes {
         "send", "send reel", "send post",
         "مشاركة", "مشاركه", "مشاركة الريل", "مشاركة الريلز", "مشاركة المنشور",
         "مشاركة الفيديو", "إرسال", "ارسال",
+        "partager", "partager le reel", "partager la publication",
+        "partager la vidéo", "envoyer", "envoyer le reel",
     )
 
     /** Prefixes accepted only when no exact description matched. */
-    val SHARE_PREFIXES = listOf("share ", "send ", "مشاركة ", "مشاركه ", "إرسال ", "ارسال ")
+    val SHARE_PREFIXES = listOf(
+        "share ", "send ", "مشاركة ", "مشاركه ", "إرسال ", "ارسال ",
+        "partager ", "envoyer ",
+    )
 
     /** Resource-id fragments of the reel Share action across Instagram layouts. */
     val SHARE_ID_FRAGMENTS = listOf(
@@ -59,20 +64,29 @@ object ShareNodes {
         "copy link to reel", "copy link to post",
         "نسخ الرابط", "نسخ رابط", "نسخ رابط الريل", "نسخ رابط المنشور",
         "نسخ عنوان url", "نسخ الارتباط", "نسخ الوصلة",
+        "copier le lien", "copier le lien du reel", "copier le lien de la publication",
+        "copier le lien de la vidéo", "copier l'url",
     )
 
-    val COPY_PREFIXES = listOf("copy link", "copy url", "نسخ الرابط", "نسخ رابط", "نسخ عنوان")
+    val COPY_PREFIXES = listOf(
+        "copy link", "copy url", "نسخ الرابط", "نسخ رابط", "نسخ عنوان",
+        "copier le lien", "copier l",
+    )
 
     /** Last-resort exact labels, only ever used inside an opened share sheet. */
-    val COPY_EXACT_FALLBACKS = listOf("copy", "نسخ")
+    val COPY_EXACT_FALLBACKS = listOf("copy", "نسخ", "copier")
 
     val COPY_ID_FRAGMENTS = listOf("copy_link", "copy_url", "action_copy", "copy_button")
 
     /** Substrings for the system-side node text search (cheap first pass). */
-    val SHARE_QUERIES = listOf("Share", "مشاركة", "مشاركه", "إرسال", "ارسال", "Send")
+    val SHARE_QUERIES = listOf(
+        "Share", "مشاركة", "مشاركه", "إرسال", "ارسال", "Send",
+        "Partager", "Envoyer",
+    )
 
     val COPY_QUERIES = listOf(
         "Copy link", "Copy URL", "نسخ الرابط", "نسخ رابط", "نسخ عنوان", "Copy", "نسخ",
+        "Copier le lien", "Copier",
     )
 
     /** Trims, lowercases and normalises spacing/Arabic presentation forms. */
@@ -113,17 +127,18 @@ object ShareNodes {
     /**
      * The whole branching rule of the automation, in one testable place.
      *
-     * Only high-confidence matches are ever clicked: an exact label (4/3) or a
-     * resource-id (3/2). A weak match is never clicked — in the share sheet a
-     * wrong tap could send the reel to a person, so when the label is not
-     * exactly "Copy link" / "نسخ الرابط" (or its resource-id), the service
-     * waits and then falls back to the clipboard instead of guessing. The same
-     * applies to Share on the reel: exact description or resource-id only.
+     * Share is the safe tap: it only opens the sheet, it can never send the
+     * reel to a person, so even a prefix match (score 1) may tap it — 1.60
+     * required an exact/id match and the sheet stopped opening on phones
+     * whose Share label carries extra words. Copy is the dangerous tap: a
+     * wrong tap inside the sheet could send the reel to a person, so only an
+     * exact label (4) or a resource-id (3) is ever clicked there; a weak
+     * match waits and then falls back to the clipboard instead of guessing.
      * Nothing else is ever clicked.
      */
     fun nextAction(phase: Int, copyScore: Int, shareScore: Int): Step = when {
         phase == PHASE_FIND_SHARE && copyScore >= 3 -> Step.COPY
-        phase == PHASE_FIND_SHARE && shareScore >= 2 -> Step.SHARE
+        phase == PHASE_FIND_SHARE && shareScore >= 1 -> Step.SHARE
         phase == PHASE_FIND_SHARE -> Step.GIVE_UP
         phase == PHASE_WAIT_SHEET && copyScore >= 3 -> Step.COPY
         phase == PHASE_WAIT_SHEET -> Step.WAIT
