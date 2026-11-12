@@ -23,11 +23,18 @@ import android.widget.Toast
  * Contract (kept deliberately narrow):
  *  - the service is OFF until the user enables it in Android accessibility settings;
  *  - it does nothing at all until the floating bubble is tapped;
- *  - it only acts while [ShareNodes.INSTAGRAM_PACKAGE] owns the active window;
+ *  - it only acts while [ShareNodes.INSTAGRAM_PACKAGE] owns the active window,
+ *    except after Share was tapped, when the share sheet may own it;
  *  - it clicks at most one Share control and at most one "Copy link" control,
  *    found by label / content-description / resource-id — never by coordinates;
+ *  - once Share was tapped, the sheet may be Instagram's own sheet or the
+ *    system share sheet: the search covers both, and the Copy tap is allowed
+ *    in either window. The wait phase polls fast (100 ms) so the sheet only
+ *    flashes and closes by itself — the user taps nothing after the bubble;
+ *  - a click that fails is retried while the run budget lasts, instead of
+ *    ending the run on the first miss;
  *  - if the share flow is not there, it falls back to the clipboard and then to a
- *    single short toast. No retries, no loops, no taps outside the share flow.
+ *    single short toast. No taps outside the share flow.
  *
  * The service subscribes only to Instagram window-state events and ignores them;
  * screen content is read only during a bubble-triggered run.
@@ -116,17 +123,21 @@ class ReelWatchService : AccessibilityService() {
         return pkg == ShareNodes.INSTAGRAM_PACKAGE
     }
 
-    /** Roots of Instagram windows, focused one first, bounded in count. */
-    private fun instagramRoots(): List<AccessibilityNodeInfo> {
+    /**
+     * Roots worth searching. Before Share is tapped, Instagram only. Once Share
+     * was tapped, Instagram plus the system share-sheet windows, because the
+     * Copy link node may live in either one.
+     */
+    private fun searchRoots(): List<AccessibilityNodeInfo> {
         val out = ArrayList<AccessibilityNodeInfo>(MAX_ROOTS)
         val active = runCatching { rootInActiveWindow }.getOrNull()
-        if (active != null && active.packageName?.toString() == ShareNodes.INSTAGRAM_PACKAGE) {
+        if (active != null && ShareNodes.isSearchablePackage(active.packageName?.toString(), phase)) {
             out += active
         }
         val extra = runCatching {
             windows.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
                 .mapNotNull { it.root }
-                .filter { it.packageName?.toString() == ShareNodes.INSTAGRAM_PACKAGE }
+                .filter { ShareNodes.isSearchablePackage(it.packageName?.toString(), phase) }
         }.getOrDefault(emptyList())
         for (root in extra) {
             if (out.size >= MAX_ROOTS) break
@@ -217,12 +228,20 @@ class ReelWatchService : AccessibilityService() {
 
     private fun scan() {
         if (finished) return
-        if (System.currentTimeMillis() > deadline || !instagramIsForeground()) {
+        if (System.currentTimeMillis() > deadline) {
+            readClipboard()
+            return
+        }
+        // Before Share is tapped the reel must be on screen. Once Share was
+        // tapped, the sheet may own the foreground window (Instagram's own
+        // sheet or the system share sheet), so the run keeps going until the
+        // deadline instead of aborting on the window change.
+        if (phase == ShareNodes.PHASE_FIND_SHARE && !instagramIsForeground()) {
             readClipboard()
             return
         }
         scans++
-        val roots = instagramRoots()
+        val roots = searchRoots()
         var found = collectByQuery(roots)
         // Only walk the tree when the cheap search came back empty, and only
         // until the deadline; the walk is capped by MAX_NODES / MAX_DEPTH.
@@ -235,8 +254,14 @@ class ReelWatchService : AccessibilityService() {
         val copy = found.second
         when (ShareNodes.nextAction(phase, copy?.score ?: 0, share?.score ?: 0)) {
             ShareNodes.Step.SHARE -> {
-                if (shareTapped || share == null || !click(share.node)) {
+                if (shareTapped || share == null) {
                     readClipboard()
+                    return
+                }
+                if (!click(share.node)) {
+                    // The node may become clickable a moment later; retry
+                    // while the budget lasts instead of abandoning the run.
+                    retryOrGiveUp()
                     return
                 }
                 shareTapped = true
@@ -244,8 +269,12 @@ class ReelWatchService : AccessibilityService() {
                 scheduleScan()
             }
             ShareNodes.Step.COPY -> {
-                if (copyTapped || copy == null || !click(copy.node)) {
+                if (copyTapped || copy == null) {
                     readClipboard()
+                    return
+                }
+                if (!click(copy.node, allowResolver = true)) {
+                    retryOrGiveUp()
                     return
                 }
                 copyTapped = true
@@ -257,23 +286,44 @@ class ReelWatchService : AccessibilityService() {
         }
     }
 
-    private fun scheduleScan() {
+    /** Retry the scan while the budget lasts; otherwise fall back to the clipboard. */
+    private fun retryOrGiveUp() {
         if (finished) return
-        if (scans >= MAX_SCANS || System.currentTimeMillis() + SCAN_GAP_MS > deadline) {
+        if (scans >= MAX_SCANS || System.currentTimeMillis() + scanGapMs() > deadline) {
             readClipboard()
             return
         }
-        handler.postDelayed({ scan() }, SCAN_GAP_MS)
+        scheduleScan()
     }
 
-    /** ACTION_CLICK on the node or its nearest clickable parent. No gestures. */
-    private fun click(node: AccessibilityNodeInfo): Boolean {
+    /** Fast polling once the sheet is awaited, so it only flashes. */
+    private fun scanGapMs(): Long =
+        if (phase == ShareNodes.PHASE_WAIT_SHEET) FAST_SCAN_GAP_MS else SCAN_GAP_MS
+
+    private fun scheduleScan() {
+        if (finished) return
+        val gap = scanGapMs()
+        if (scans >= MAX_SCANS || System.currentTimeMillis() + gap > deadline) {
+            readClipboard()
+            return
+        }
+        handler.postDelayed({ scan() }, gap)
+    }
+
+    /**
+     * ACTION_CLICK on the node or its nearest clickable parent. No gestures.
+     * [allowResolver] is true only for the Copy step, whose node may live in
+     * the system share-sheet window once Share was tapped.
+     */
+    private fun click(node: AccessibilityNodeInfo, allowResolver: Boolean = false): Boolean {
         var current: AccessibilityNodeInfo? = node
         var hops = 0
         while (current != null && hops < CLICK_PARENT_HOPS) {
             val active = current
             val pkg = runCatching { active.packageName?.toString() }.getOrNull()
-            if (pkg != ShareNodes.INSTAGRAM_PACKAGE) return false
+            val inScope = pkg == ShareNodes.INSTAGRAM_PACKAGE ||
+                (allowResolver && pkg != null && pkg in ShareNodes.RESOLVER_PACKAGES)
+            if (!inScope) return false
             val clickable = runCatching { active.isClickable }.getOrDefault(false)
             if (clickable) {
                 return runCatching {
@@ -408,7 +458,8 @@ class ReelWatchService : AccessibilityService() {
     companion object {
         private const val RUN_BUDGET_MS = 7000L
         private const val SCAN_GAP_MS = 320L
-        private const val MAX_SCANS = 12
+        private const val FAST_SCAN_GAP_MS = 100L
+        private const val MAX_SCANS = 60
         private const val MAX_NODES = 900
         private const val WALK_SLACK_MS = 900L
         private const val MAX_DEPTH = 40
