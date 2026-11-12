@@ -86,6 +86,13 @@ jobs:
             exit 1
           fi
 
+      - name: Offline contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet -r requirements.txt pytest
+          python3 -m pytest tests -q
+
       - name: Build debug APK
         shell: bash
         run: |

@@ -184,6 +184,13 @@
                 <p data-i18n="bubbleBody">من إنستغرام: مشاركة → تنزيل. يبدأ الحفظ في الخلفية وتعود لإنستغرام. الزر العائم اختياري. اضغط مطولاً لإخفائه ثم أعده من الإشعار.</p>
                 <button class="secondary more-btn" id="bubbleBtn" type="button" data-i18n="bubbleOn">تفعيل الزر العائم</button>
               </article>
+              <article class="glass card" id="reelWatchCard">
+                <h3 id="reelWatchTitle">تنزيل الريل بضغطة واحدة</h3>
+                <p id="reelWatchBody">أنت تشاهد ريل في إنستغرام؟ اضغط الزر العائم مرة واحدة فيُنزَّل نفس الريل، بدون نسخ الرابط وبدون فتح IG SAVE.</p>
+                <p id="reelWatchPrivacy">يحتاج إذن «إمكانية الوصول». يعمل داخل إنستغرام فقط، وفقط بعد ضغطتك على الزر: يفتح المشاركة ويضغط «نسخ الرابط». لا يقرأ النص ولا كلمات المرور ولا محتوى أي تطبيق أو شاشة أخرى. مغلق افتراضياً.</p>
+                <button class="secondary more-btn" id="reelWatchBtn" type="button">تفعيل التنزيل بضغطة</button>
+                <p id="reelWatchState" hidden></p>
+              </article>
               <article class="glass card">
                 <h3 data-i18n="batteryTitle">لا يُوقف التنزيل</h3>
                 <p data-i18n="batteryBody">على شاومي وهواوي وسامسونج: اسمح للتطبيق بالعمل في الخلفية حتى لا يُقتل الحفظ بعد مشاركة الريلز.</p>
@@ -240,5 +247,6 @@
   </div>
   <script src="/app.js"></script>
   <script src="/update.js"></script>
+  <script src="/reelwatch.js"></script>
 </body>
 </html>

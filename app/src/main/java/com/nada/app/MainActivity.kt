@@ -223,6 +223,28 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { askBattery() }
         }
 
+        /** True only when the user opted in AND Android has the service enabled. */
+        @JavascriptInterface
+        fun isReelWatchOn(): Boolean {
+            return Prefs.reelWatchOn(this@MainActivity) &&
+                ReelWatchService.isServiceEnabled(this@MainActivity)
+        }
+
+        /**
+         * The opt-in cannot be granted by the app: Android requires the user to
+         * flip it in system accessibility settings, so we record the intent and
+         * open that screen.
+         */
+        @JavascriptInterface
+        fun setReelWatch(on: Boolean) {
+            runOnUiThread { applyReelWatch(on) }
+        }
+
+        @JavascriptInterface
+        fun openReelWatchSettings() {
+            runOnUiThread { openAccessibilitySettings() }
+        }
+
         @JavascriptInterface
         fun checkForUpdates() {
             runOnUiThread {
@@ -266,6 +288,40 @@ class MainActivity : AppCompatActivity() {
             requestPermissions(arrayOf(android.Manifest.permission.WRITE_EXTERNAL_STORAGE), 27)
         }
         BubbleService.start(this)
+    }
+
+    /**
+     * One-tap reel download opt-in. Turning it off is immediate and needs no
+     * system screen; turning it on records the choice and hands the user to
+     * Android's accessibility list, where only they can grant it.
+     */
+    private fun applyReelWatch(on: Boolean) {
+        Prefs.setReelWatch(this, on)
+        if (!on) {
+            notifyReelWatch()
+            return
+        }
+        if (!Prefs.bubbleOn(this)) {
+            Toast.makeText(this, getString(R.string.bubble_hint), Toast.LENGTH_SHORT).show()
+        }
+        openAccessibilitySettings()
+    }
+
+    private fun openAccessibilitySettings() {
+        val opened = runCatching {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }.isSuccess
+        if (!opened) {
+            runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
+        }
+        Toast.makeText(this, getString(R.string.reel_watch_open_settings), Toast.LENGTH_LONG).show()
+    }
+
+    /** Keeps the in-app card honest after the user returns from settings. */
+    private fun notifyReelWatch() {
+        if (!pageReady || !::web.isInitialized) return
+        val on = Prefs.reelWatchOn(this) && ReelWatchService.isServiceEnabled(this)
+        web.evaluateJavascript("window.nadaReelWatch && window.nadaReelWatch($on)", null)
     }
 
     private fun restoreBubble() {
@@ -328,6 +384,7 @@ class MainActivity : AppCompatActivity() {
         runCatching { banner?.resume() }
         AppUpdateManager.get(this).resumePending(this)
         offerClipboard()
+        notifyReelWatch()
     }
 
     override fun onPause() {
