@@ -13,6 +13,22 @@ import java.util.Locale
 object ShareNodes {
     const val INSTAGRAM_PACKAGE = "com.instagram.android"
 
+    /** Packages of the Android system share sheet, which may host the Copy link
+     *  node once Share was tapped. */
+    val RESOLVER_PACKAGES = setOf(
+        "com.android.intentresolver",
+        "com.google.android.intentresolver",
+    )
+
+    /**
+     * Whether a window package may be searched in [phase]: Instagram always;
+     * the system share-sheet packages only once Share was tapped.
+     */
+    fun isSearchablePackage(pkg: String?, phase: Int): Boolean {
+        if (pkg == INSTAGRAM_PACKAGE) return true
+        return phase == PHASE_WAIT_SHEET && pkg != null && pkg in RESOLVER_PACKAGES
+    }
+
     /** Phase 0: looking at the reel, share sheet not requested yet. */
     const val PHASE_FIND_SHARE = 0
 
@@ -97,15 +113,19 @@ object ShareNodes {
     /**
      * The whole branching rule of the automation, in one testable place.
      *
-     * Before Share is tapped only a high-confidence "Copy link" (an already open
-     * sheet) or a Share control may be clicked. After Share was tapped once, any
-     * Copy candidate inside the sheet is accepted. Nothing else is ever clicked.
+     * Only high-confidence matches are ever clicked: an exact label (4/3) or a
+     * resource-id (3/2). A weak match is never clicked — in the share sheet a
+     * wrong tap could send the reel to a person, so when the label is not
+     * exactly "Copy link" / "نسخ الرابط" (or its resource-id), the service
+     * waits and then falls back to the clipboard instead of guessing. The same
+     * applies to Share on the reel: exact description or resource-id only.
+     * Nothing else is ever clicked.
      */
     fun nextAction(phase: Int, copyScore: Int, shareScore: Int): Step = when {
         phase == PHASE_FIND_SHARE && copyScore >= 3 -> Step.COPY
-        phase == PHASE_FIND_SHARE && shareScore >= 1 -> Step.SHARE
+        phase == PHASE_FIND_SHARE && shareScore >= 2 -> Step.SHARE
         phase == PHASE_FIND_SHARE -> Step.GIVE_UP
-        phase == PHASE_WAIT_SHEET && copyScore >= 1 -> Step.COPY
+        phase == PHASE_WAIT_SHEET && copyScore >= 3 -> Step.COPY
         phase == PHASE_WAIT_SHEET -> Step.WAIT
         else -> Step.GIVE_UP
     }
