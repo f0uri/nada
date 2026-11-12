@@ -222,8 +222,7 @@ def test_protected_files_untouched():
         "app/src/main/java/com/nada/app/BannerAds.kt",
         "app/src/main/java/com/nada/app/ListnrService.kt",
         "app/src/main/java/com/nada/app/InstagramClient.kt",
-        "app/src/main/java/com/nada/app/ReelWatchService.kt",
-        "app/src/main/java/com/nada/app/ShareNodes.kt",
+        # 1.60 owns the bubble files, so they are no longer protected here.
         "app/src/main/java/com/nada/app/BubbleService.kt",
         "app/src/main/java/com/nada/app/QuickSaveService.kt",
         "app/src/main/assets/reelwatch.js",
@@ -235,13 +234,13 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_59():
+def test_version_bumped_to_60():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 59" in gradle
-    assert 'versionName = "1.59"' in gradle
+    assert "versionCode = 60" in gradle
+    assert 'versionName = "1.60"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.59"
-    assert manifest["versionCode"] == 59
+    assert manifest["version"] == "1.60"
+    assert manifest["versionCode"] == 60
 
 
 # ---------------------------------------------------------------------------
