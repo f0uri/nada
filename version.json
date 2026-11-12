@@ -1,1 +1,6 @@
-{"apkUrl":"https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk","changelog":"IG SAVE 1.62: the update message is now a floating glassy gold card too — same luxurious style as the download bar. The bubble also finds the Share button again (a close label is enough to open the sheet; Copy link stays exact-only so a wrong tap can never send the reel to anyone).","version":"1.62","versionCode":62}
+{
+  "version": "1.62",
+  "versionCode": 62,
+  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
+  "changelog": "IG SAVE 1.62: the update message is now a floating glassy gold card too \u2014 same luxurious style as the download bar. The bubble also finds the Share button again (a close label is enough to open the sheet; Copy link stays exact-only so a wrong tap can never send the reel to anyone)."
+}
