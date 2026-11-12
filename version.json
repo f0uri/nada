@@ -1,0 +1,6 @@
+{
+  "version": "1.57",
+  "versionCode": 57,
+  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
+  "changelog": "IG SAVE 1.57: listnr is now the only reel/post video resolver. Added one-tap in-app updates with a download progress bar and silent self-update when Android allows it."
+}

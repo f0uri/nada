@@ -27,4 +27,16 @@
     <string name="save_fail_rate">تم الإبطاء قليلاً. أعد المحاولة بعد لحظة</string>
     <string name="save_fail_net">تعذّر الاتصال. تحقق من الشبكة</string>
     <string name="battery_channel">التشغيل في الخلفية</string>
+    <string name="update_title">تحديث IG SAVE</string>
+    <string name="update_available">الإصدار %1$s متاح</string>
+    <string name="update_keep_data">يُثبَّت فوق التطبيق الحالي. تبقى بياناتك كما هي.</string>
+    <string name="update_now">تحديث</string>
+    <string name="update_later">لاحقاً</string>
+    <string name="update_current">أنت تستخدم أحدث إصدار</string>
+    <string name="update_check_failed">تعذّر التحقق من التحديثات. تحقق من الشبكة</string>
+    <string name="update_downloading">جاري تنزيل التحديث… %1$d%%</string>
+    <string name="update_failed">تعذّر التحديث. حاول مرة أخرى</string>
+    <string name="update_allow_installs">اسمح بالتثبيت من IG SAVE ثم عد لإكمال التحديث</string>
+    <string name="update_check">التحقق من التحديثات</string>
+    <string name="update_entry_body">احصل على أحدث إصدار داخل التطبيق مع شريط تقدم.</string>
 </resources>
