@@ -79,6 +79,7 @@ class MainActivity : AppCompatActivity() {
         web.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 pageReady = true
+                renderUpdateState(AppUpdateManager.get(this@MainActivity).hasUpdate())
                 deliverPending()
                 offerClipboard()
                 applyBannerGate()
@@ -245,6 +246,10 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { openAccessibilitySettings() }
         }
 
+        /** One-line status for the check box; does not open any dialog. */
+        @JavascriptInterface
+        fun updateAvailable(): Boolean = AppUpdateManager.get(this@MainActivity).hasUpdate()
+
         @JavascriptInterface
         fun checkForUpdates() {
             runOnUiThread {
@@ -315,6 +320,20 @@ class MainActivity : AppCompatActivity() {
             runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) }
         }
         Toast.makeText(this, getString(R.string.reel_watch_open_settings), Toast.LENGTH_LONG).show()
+    }
+
+    /**
+     * Renders the update-check box as exactly one line:
+     * "يوجد تحديث" or "لا يوجد تحديث". Nothing else goes in that box.
+     */
+    fun renderUpdateState(hasUpdate: Boolean) {
+        if (!pageReady || !::web.isInitialized) return
+        runCatching {
+            web.evaluateJavascript(
+                "window.nadaUpdateState && window.nadaUpdateState(${if (hasUpdate) "true" else "false"})",
+                null,
+            )
+        }
     }
 
     /** Keeps the in-app card honest after the user returns from settings. */
@@ -456,7 +475,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        AppUpdateManager.get(this).dismiss()
+        AppUpdateManager.get(this).onHostDestroyed(this)
         banner?.destroy()
         banner = null
         if (::server.isInitialized) {

@@ -1,6 +1,6 @@
 {
-  "version": "1.58",
-  "versionCode": 58,
+  "version": "1.59",
+  "versionCode": 59,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.58: one-tap bubble download of the reel being watched. Enable the optional accessibility service, then tap the floating bubble inside Instagram \u2014 it opens Share, presses Copy link and downloads that reel without opening IG SAVE. Instagram only, only after your tap, off by default."
+  "changelog": "IG SAVE 1.59: fixed the update loop — the update now installs end to end, \"Later\" is remembered for the day, failures show a short error with retry instead of a stuck 100% dialog, and the check box shows only \"يوجد تحديث\" / \"لا يوجد تحديث\"."
 }

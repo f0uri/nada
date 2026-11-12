@@ -178,11 +178,14 @@ def test_resolver_and_protected_files_untouched():
 
 def test_version_bumped_consistently():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 58" in gradle
-    assert 'versionName = "1.58"' in gradle
+    # Derived from Gradle so a later release bump does not need a test edit.
+    name = re.search(r'versionName = "([^"]+)"', gradle).group(1)
+    code = int(re.search(r"versionCode = (\d+)", gradle).group(1))
+    assert f"versionCode = {code}" in gradle
+    assert f'versionName = "{name}"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.58"
-    assert manifest["versionCode"] == 58
+    assert manifest["version"] == name
+    assert manifest["versionCode"] == code
     assert manifest["apkUrl"].endswith("/releases/latest/download/nada-debug.apk")
 
 
