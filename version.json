@@ -2,5 +2,5 @@
   "version": "1.59",
   "versionCode": 59,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.59: fixed the update loop — the update now installs end to end, \"Later\" is remembered for the day, failures show a short error with retry instead of a stuck 100% dialog, and the check box shows only \"يوجد تحديث\" / \"لا يوجد تحديث\"."
+  "changelog": "IG SAVE 1.59: fixed the update loop \u2014 the update now installs end to end, \"Later\" is remembered for the day, failures show a short error with retry instead of a stuck 100% dialog, and the check box shows only \"\u064a\u0648\u062c\u062f \u062a\u062d\u062f\u064a\u062b\" / \"\u0644\u0627 \u064a\u0648\u062c\u062f \u062a\u062d\u062f\u064a\u062b\"."
 }
