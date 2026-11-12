@@ -1,1 +1,6 @@
-{"apkUrl":"https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk","changelog":"IG SAVE 1.63: the whole app now speaks Arabic, English and French — the main screen, the update card and the one-tap reel card all switch with the language button (ع / EN / FR), and the system dialogs and notifications follow your phone's language. The bubble also understands Share and Copy link in all three languages, and its Copy tap climbs deeper into the share sheet so it lands on the right row.","version":"1.63","versionCode":63}
+{
+  "version": "1.63",
+  "versionCode": 63,
+  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
+  "changelog": "IG SAVE 1.63: the whole app now speaks Arabic, English and French \u2014 the main screen, the update card and the one-tap reel card all switch with the language button (\u0639 / EN / FR), and the system dialogs and notifications follow your phone's language. The bubble also understands Share and Copy link in all three languages, and its Copy tap climbs deeper into the share sheet so it lands on the right row."
+}
