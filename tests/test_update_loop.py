@@ -266,8 +266,8 @@ def test_protected_files_untouched():
         # 1.60 owns the bubble files, so they are no longer protected here.
         "app/src/main/java/com/nada/app/BubbleService.kt",
         "app/src/main/java/com/nada/app/QuickSaveService.kt",
-        "app/src/main/assets/reelwatch.js",
-        "app/src/main/assets/app.js",
+        # 1.63 owns the trilingual WebView work, so app.js / reelwatch.js are
+        # no longer protected here (the download core above still is).
         "app/src/main/assets/styles.css",
         "signing/nada.jks",
         "server.py",
@@ -275,13 +275,56 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_62():
+def test_version_bumped_to_63():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 62" in gradle
-    assert 'versionName = "1.62"' in gradle
+    assert "versionCode = 63" in gradle
+    assert 'versionName = "1.63"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.62"
-    assert manifest["versionCode"] == 62
+    assert manifest["version"] == "1.63"
+    assert manifest["versionCode"] == 63
+
+
+def test_webview_is_trilingual():
+    """1.63: the WebView UI speaks Arabic, English and French.
+
+    app.js carries a full fr dictionary, the language button cycles
+    ar -> en -> fr -> ar and shows the next language, and the reel-watch and
+    update cards pick fr too. Assets and static/ stay mirrored.
+    """
+    app_js = read(APP / "assets" / "app.js")
+    assert ",fr:{" in app_js
+    assert "Télécharger ce fichier" in app_js
+    assert "Collez le lien" in app_js
+    assert 'n.lang="ar"===n.lang?"en":"fr"===n.lang?"ar":"fr"' in app_js
+    assert 'textContent="ar"===n.lang?"EN":"en"===n.lang?"FR":"ع"' in app_js
+    assert app_js == read(ROOT / "static" / "app.js")
+    for name in ("reelwatch.js", "update.js"):
+        js = read(APP / "assets" / name)
+        assert "const fr = {" in js, name
+        assert 'lang.startsWith("fr")' in js, name
+        assert js == read(ROOT / "static" / name), name
+
+
+def test_native_strings_are_trilingual():
+    """1.63: values-en and values-fr translate every translatable string."""
+    def names(path):
+        text = read(path)
+        out = {}
+        for m in re.finditer(r'<string name="([^"]+)"([^>]*)>(.*?)</string>', text, re.S):
+            out[m.group(1)] = (m.group(2), m.group(3))
+        return out
+
+    base = names(APP / "res" / "values" / "strings.xml")
+    # Same in every language: brand name, a URL placeholder, a username.
+    identical = {"app_name", "placeholder", "userPlaceholder"}
+    for lang in ("en", "fr"):
+        other = names(APP / "res" / ("values-" + lang) / "strings.xml")
+        assert set(other) == set(base), lang
+        for name, (attrs, value) in base.items():
+            if 'translatable="false"' in attrs:
+                assert other[name][1] == value, (lang, name)
+            elif name not in identical:
+                assert other[name][1] != value, (lang, name)
 
 
 # ---------------------------------------------------------------------------

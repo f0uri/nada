@@ -471,7 +471,9 @@ class ReelWatchService : AccessibilityService() {
         private const val WALK_SLACK_MS = 900L
         private const val MAX_DEPTH = 40
         private const val MAX_ROOTS = 3
-        private const val CLICK_PARENT_HOPS = 4
+        // Copy rows in the sheet can sit several layouts deep (icon + text +
+        // row + list), so the click is allowed to climb further up the tree.
+        private const val CLICK_PARENT_HOPS = 8
         private const val COPY_SETTLE_MS = 500L
         private const val CLIP_SKEW_MS = 1500L
         private const val FOCUS_TIMEOUT_MS = 420L

@@ -24,6 +24,17 @@
     restricted: "If the switch is greyed out: App info → ⋮ menu → Allow restricted settings.",
     needApp: "This feature only works in the Android app.",
   };
+  const fr = {
+    title: "Télécharger le reel en un appui",
+    body: "Vous regardez un reel dans Instagram ? Appuyez une fois sur le bouton flottant et ce même reel se télécharge — sans copier le lien, sans ouvrir IG SAVE.",
+    privacy: "Nécessite l'autorisation « Accessibilité ». Fonctionne uniquement dans Instagram, et seulement après votre appui sur le bouton : il ouvre Partager et appuie sur « Copier le lien ». Il ne lit ni le texte, ni les mots de passe, ni le contenu d'aucune autre application ou écran. Désactivé par défaut.",
+    on: "Désactiver le téléchargement en un appui",
+    off: "Activer le téléchargement en un appui",
+    enabled: "Activé. Appuyez sur le bouton flottant pendant que vous êtes dans Instagram.",
+    disabled: "Désactivé. Activez « IG SAVE » dans les paramètres d'accessibilité.",
+    restricted: "Si l'interrupteur est grisé : Infos sur l'appli → menu ⋮ → Autoriser les paramètres restreints.",
+    needApp: "Cette fonction ne marche que dans l'application Android.",
+  };
   function bridge() {
     return window.NadaBridge && typeof window.NadaBridge.isReelWatchOn === "function" ? window.NadaBridge : null;
   }
@@ -34,7 +45,7 @@
   }
   function strings() {
     const lang = localStorage.getItem("nada-lang") || document.documentElement.lang || "ar";
-    return lang.startsWith("en") ? en : ar;
+    return lang.startsWith("fr") ? fr : lang.startsWith("en") ? en : ar;
   }
   function render() {
     const t = strings();

@@ -1,0 +1,56 @@
+<resources>
+    <string name="app_name">IG SAVE</string>
+    <string name="admob_app_id" translatable="false">ca-app-pub-4928386589082122~7556472644</string>
+    <string name="admob_banner_id" translatable="false">ca-app-pub-4928386589082122/7504501752</string>
+    <string name="auth_title">Temporary access to stories</string>
+    <string name="auth_hint">We sign in this time only, then clear the session. We don\'t store your password or cookies.</string>
+    <string name="auth_close">Cancel</string>
+    <string name="bubble_label">Download IG SAVE</string>
+    <string name="share_save">Download</string>
+    <string name="bubble_hint">From Instagram: Share, then Download. Progress shows in notifications.</string>
+    <string name="save_need_link">From Instagram, tap Share, then Download</string>
+    <string name="bubble_hidden">The floating button is hidden. Tap Show to bring it back.</string>
+    <string name="bubble_channel">Floating button</string>
+    <string name="bubble_off">Stop</string>
+    <string name="bubble_show">Show button</string>
+    <string name="bubble_hide">Hide</string>
+    <string name="save_channel">Downloads</string>
+    <string name="save_working">Fetching the post…</string>
+    <string name="save_stage_link">Reading the link…</string>
+    <string name="save_stage_video">Fetching the original video…</string>
+    <string name="save_stage_file">Saving to Downloads…</string>
+    <string name="save_started">Saved</string>
+    <string name="save_files">%1$d files in Downloads</string>
+    <string name="save_fail">Download failed</string>
+    <string name="save_fail_url">This is not a valid Instagram link</string>
+    <string name="save_fail_missing">The post is unavailable, or the account is private</string>
+    <string name="save_fail_rate">Slowed down a little. Try again in a moment</string>
+    <string name="save_fail_net">Couldn\'t connect. Check your network</string>
+    <string name="battery_channel">Running in the background</string>
+    <string name="update_title">IG SAVE update</string>
+    <string name="update_available">Version %1$s is available</string>
+    <string name="update_keep_data">Installs over the current app. Your data stays as it is.</string>
+    <string name="update_now">Update</string>
+    <string name="update_later">Later</string>
+    <string name="update_current">You\'re using the latest version</string>
+    <string name="update_check_failed">Couldn\'t check for updates. Check your network</string>
+    <string name="update_downloading">Downloading the update… %1$d%%</string>
+    <string name="update_failed">Update failed. Try again</string>
+    <string name="update_allow_installs">Allow installing from IG SAVE, then come back to finish the update</string>
+    <string name="update_check">Check for updates</string>
+    <string name="update_entry_body">No update available</string>
+    <string name="update_available_yes">Update available</string>
+    <string name="update_none">No update available</string>
+    <string name="update_ok">OK</string>
+    <string name="update_retry">Retry</string>
+    <string name="update_installing">Installing…</string>
+    <string name="update_err_signature">Signature doesn\'t match the installed app</string>
+    <string name="update_err_file">The downloaded file is invalid</string>
+    <string name="update_err_version">The file version is not newer than the current one</string>
+    <string name="reel_watch_need_link">Copy the reel link first</string>
+    <string name="reel_watch_service_label">IG SAVE · Download the reel you\'re watching</string>
+    <string name="reel_watch_service_summary">One tap on the floating button downloads the open reel in Instagram.</string>
+    <string name="reel_watch_service_description">Works only inside Instagram and only after you tap the floating button: it opens the share menu, taps Copy link, then downloads the reel. It doesn\'t read text, passwords, or the content of any other app or screen, and it doesn\'t run in the background without your tap. Stop it anytime from this screen.</string>
+    <string name="reel_watch_open_settings">Enable “IG SAVE” in Accessibility settings, then come back to the app.</string>
+    <string name="reel_watch_restricted">If the switch is greyed out: App info ← ⋮ menu ← Allow restricted settings.</string>
+</resources>

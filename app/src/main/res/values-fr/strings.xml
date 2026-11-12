@@ -1,0 +1,56 @@
+<resources>
+    <string name="app_name">IG SAVE</string>
+    <string name="admob_app_id" translatable="false">ca-app-pub-4928386589082122~7556472644</string>
+    <string name="admob_banner_id" translatable="false">ca-app-pub-4928386589082122/7504501752</string>
+    <string name="auth_title">Accès temporaire aux stories</string>
+    <string name="auth_hint">On se connecte juste cette fois, puis on efface la session. On ne stocke ni votre mot de passe ni les cookies.</string>
+    <string name="auth_close">Annuler</string>
+    <string name="bubble_label">Télécharger IG SAVE</string>
+    <string name="share_save">Télécharger</string>
+    <string name="bubble_hint">Depuis Instagram : Partager, puis Télécharger. La progression s\'affiche dans les notifications.</string>
+    <string name="save_need_link">Depuis Instagram, appuyez sur Partager, puis Télécharger</string>
+    <string name="bubble_hidden">Le bouton flottant est masqué. Appuyez sur Afficher pour le remettre.</string>
+    <string name="bubble_channel">Bouton flottant</string>
+    <string name="bubble_off">Arrêter</string>
+    <string name="bubble_show">Afficher le bouton</string>
+    <string name="bubble_hide">Masquer</string>
+    <string name="save_channel">Téléchargements</string>
+    <string name="save_working">Récupération de la publication…</string>
+    <string name="save_stage_link">Lecture du lien…</string>
+    <string name="save_stage_video">Récupération de la vidéo originale…</string>
+    <string name="save_stage_file">Enregistrement dans Téléchargements…</string>
+    <string name="save_started">Enregistré</string>
+    <string name="save_files">%1$d fichiers dans Téléchargements</string>
+    <string name="save_fail">Échec du téléchargement</string>
+    <string name="save_fail_url">Ce n\'est pas un lien Instagram valide</string>
+    <string name="save_fail_missing">La publication est indisponible, ou le compte est privé</string>
+    <string name="save_fail_rate">Ralenti un moment. Réessayez dans un instant</string>
+    <string name="save_fail_net">Connexion impossible. Vérifiez votre réseau</string>
+    <string name="battery_channel">Exécution en arrière-plan</string>
+    <string name="update_title">Mise à jour IG SAVE</string>
+    <string name="update_available">La version %1$s est disponible</string>
+    <string name="update_keep_data">S\'installe par-dessus l\'application actuelle. Vos données restent telles quelles.</string>
+    <string name="update_now">Mettre à jour</string>
+    <string name="update_later">Plus tard</string>
+    <string name="update_current">Vous utilisez la dernière version</string>
+    <string name="update_check_failed">Impossible de vérifier les mises à jour. Vérifiez votre réseau</string>
+    <string name="update_downloading">Téléchargement de la mise à jour… %1$d%%</string>
+    <string name="update_failed">Échec de la mise à jour. Réessayez</string>
+    <string name="update_allow_installs">Autorisez l\'installation depuis IG SAVE, puis revenez pour terminer la mise à jour</string>
+    <string name="update_check">Vérifier les mises à jour</string>
+    <string name="update_entry_body">Aucune mise à jour disponible</string>
+    <string name="update_available_yes">Mise à jour disponible</string>
+    <string name="update_none">Aucune mise à jour disponible</string>
+    <string name="update_ok">OK</string>
+    <string name="update_retry">Réessayer</string>
+    <string name="update_installing">Installation…</string>
+    <string name="update_err_signature">La signature ne correspond pas à l\'application installée</string>
+    <string name="update_err_file">Le fichier téléchargé n\'est pas valide</string>
+    <string name="update_err_version">La version du fichier n\'est pas plus récente que l\'actuelle</string>
+    <string name="reel_watch_need_link">Copiez d\'abord le lien du reel</string>
+    <string name="reel_watch_service_label">IG SAVE · Télécharger le reel que vous regardez</string>
+    <string name="reel_watch_service_summary">Un appui sur le bouton flottant télécharge le reel ouvert dans Instagram.</string>
+    <string name="reel_watch_service_description">Fonctionne uniquement dans Instagram et seulement après votre appui sur le bouton flottant : il ouvre le menu de partage, appuie sur Copier le lien, puis télécharge le reel. Il ne lit ni le texte, ni les mots de passe, ni le contenu d\'aucune autre application ou écran, et ne fonctionne pas en arrière-plan sans votre appui. Arrêtez-le à tout moment depuis cet écran.</string>
+    <string name="reel_watch_open_settings">Activez « IG SAVE » dans les paramètres d\'accessibilité, puis revenez dans l\'application.</string>
+    <string name="reel_watch_restricted">Si l\'interrupteur est grisé : Infos sur l\'appli ← menu ⋮ ← Autoriser les paramètres restreints.</string>
+</resources>
