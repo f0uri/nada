@@ -16,12 +16,19 @@
     no: "No update",
     needApp: "In-app updates work in the Android app.",
   };
+  const fr = {
+    title: "Mises à jour de l'application",
+    check: "Vérifier les mises à jour",
+    yes: "Mise à jour disponible",
+    no: "Aucune mise à jour",
+    needApp: "Les mises à jour dans l'application fonctionnent dans l'application Android.",
+  };
   // null = not known yet; the box stays on the single "no update" line until
   // the native side reports a real answer. No extra words are ever added.
   let available = false;
   function strings() {
     const lang = localStorage.getItem("nada-lang") || document.documentElement.lang || "ar";
-    return lang.startsWith("en") ? en : ar;
+    return lang.startsWith("fr") ? fr : lang.startsWith("en") ? en : ar;
   }
   function render() {
     const t = strings();
