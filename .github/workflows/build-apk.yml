@@ -103,6 +103,9 @@ jobs:
               tail -n 120 "${RUNNER_TEMP}/gradle-build.log"
               echo '```'
             } >> "${GITHUB_STEP_SUMMARY}"
+            grep -E 'e: |error:|FAILED|What went wrong|Unresolved reference|Expecting' "${RUNNER_TEMP}/gradle-build.log" | head -n 30 | while IFS= read -r line; do
+              echo "::error title=Gradle build error::${line}"
+            done
           fi
 
       - name: Verify debug APK
