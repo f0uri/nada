@@ -38,7 +38,15 @@
     <string name="update_failed">تعذّر التحديث. حاول مرة أخرى</string>
     <string name="update_allow_installs">اسمح بالتثبيت من IG SAVE ثم عد لإكمال التحديث</string>
     <string name="update_check">التحقق من التحديثات</string>
-    <string name="update_entry_body">احصل على أحدث إصدار داخل التطبيق مع شريط تقدم.</string>
+    <string name="update_entry_body">لا يوجد تحديث</string>
+    <string name="update_available_yes">يوجد تحديث</string>
+    <string name="update_none">لا يوجد تحديث</string>
+    <string name="update_ok">حسناً</string>
+    <string name="update_retry">إعادة المحاولة</string>
+    <string name="update_installing">جاري التثبيت…</string>
+    <string name="update_err_signature">التوقيع غير مطابق للتطبيق المثبّت</string>
+    <string name="update_err_file">الملف المُنزَّل غير صالح</string>
+    <string name="update_err_version">إصدار الملف ليس أحدث من الحالي</string>
     <string name="reel_watch_need_link">انسخ رابط الريل أولاً</string>
     <string name="reel_watch_service_label">IG SAVE · تنزيل الريل المشاهد</string>
     <string name="reel_watch_service_summary">ضغطة واحدة على الزر العائم لتنزيل الريل المفتوح في إنستغرام.</string>
