@@ -1,1 +1,6 @@
-{"apkUrl":"https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk","changelog":"IG SAVE 1.64: the update no longer stalls at 100% 'installing' — if the install permission is missing, the app now tells you and opens the setting instead of stopping silently. The download bar also matches the preview now: a white shimmer sweeps the gold bar, a glowing tip rides the fill, and the card is frosted glass.","version":"1.64","versionCode":64}
+{
+  "version": "1.64",
+  "versionCode": 64,
+  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
+  "changelog": "IG SAVE 1.64: the update no longer stalls at 100% 'installing' \u2014 if the install permission is missing, the app now tells you and opens the setting instead of stopping silently. The download bar also matches the preview now: a white shimmer sweeps the gold bar, a glowing tip rides the fill, and the card is frosted glass."
+}
