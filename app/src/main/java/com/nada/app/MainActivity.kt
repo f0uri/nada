@@ -75,6 +75,13 @@ class MainActivity : AppCompatActivity() {
             cacheMode = WebSettings.LOAD_DEFAULT
             mediaPlaybackRequiresUserGesture = false
             setSupportMultipleWindows(false)
+            // The UI is a fixed 402px-max design: fit the page to the screen
+            // instead of rendering it wider than the display (1.72 — the
+            // About page looked zoomed in, content cut off on the sides).
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            // System font scaling must not blow up the fixed layout.
+            textZoom = 100
         }
         web.addJavascriptInterface(StoryBridge(), "NadaBridge")
         web.webViewClient = object : WebViewClient() {

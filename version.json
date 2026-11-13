@@ -1,6 +1,6 @@
 {
-  "version": "1.71",
-  "versionCode": 71,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.71: when listnr cannot find a reel (HTTP 400 No video found), the app now tries quicksave as a fallback \u2014 the same fallback Reel Checker already uses. Listnr stays first."
+  "changelog": "IG SAVE 1.72: the in-app page now fits the screen — the About page no longer looks zoomed in with content cut off on the sides.",
+  "version": "1.72",
+  "versionCode": 72
 }
