@@ -25,7 +25,7 @@ APP = ROOT / "app" / "src" / "main"
 JAVA = APP / "java" / "com" / "nada" / "app"
 ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
-NEW_SOURCES = [JAVA / "ReelWatchService.kt", JAVA / "ShareNodes.kt"]
+NEW_SOURCES = [JAVA / "ReelWatchService.kt", JAVA / "ShareNodes.kt", JAVA / "BubbleDiagnostics.kt"]
 
 
 def read(path: Path) -> str:
@@ -270,6 +270,76 @@ def test_sheet_closes_after_copy():
     assert "performGlobalAction(GLOBAL_ACTION_BACK)" in span
 
 
+def test_every_terminal_path_derives_a_stage():
+    """1.67: the 7 s net, retryOrGiveUp and scheduleScan all reach readClipboard.
+
+    Deriving the stage inside readClipboard (and again defensively in
+    needLinkToast) means no caller can forget it. The pure stageFor rule is
+    exercised on the JVM below.
+    """
+    src = read(JAVA / "ReelWatchService.kt")
+    read_clip = _span(src, "private fun readClipboard()")
+    toast = _span(src, "private fun needLinkToast()")
+    for span in (read_clip, toast):
+        assert "BubbleDiagnostics.stageFor(phase, copyClickFailed)" in span
+    # The three bypass callers still exist and still terminate through it.
+    assert "handler.postDelayed({ readClipboard() }, RUN_BUDGET_MS)" in src
+    for name in ("private fun retryOrGiveUp()", "private fun scheduleScan()"):
+        assert "readClipboard()" in _span(src, name)
+    # The safety rule itself is pure and tested without Android.
+    diag = read(JAVA / "BubbleDiagnostics.kt")
+    assert 'copyClickFailed -> "copy_click"' in diag
+    assert 'phase == ShareNodes.PHASE_WAIT_SHEET -> "no_copy"' in diag
+    assert 'else -> "no_share"' in diag
+
+
+def test_give_up_paths_persist_run_evidence():
+    src = read(JAVA / "ReelWatchService.kt")
+    toast = _span(src, "private fun needLinkToast()")
+    assert 'persistDiagnostics("need_link")' in toast
+    persist = _span(src, "private fun persistDiagnostics(")
+    assert "getExternalFilesDir(null)" in persist
+    assert "BubbleDiagnostics.FILE_NAME" in persist
+    assert "writeText(diag.report())" in persist
+    assert "diag.summary()" in persist
+    # Every observed run records roots, both Copy passes and click attempts.
+    assert "diag.observeRoots(" in src
+    assert 'diag.observeCopy("query"' in src
+    assert 'diag.observeCopy("walk"' in src
+    assert "diag.beginClick(" in src
+    assert "diag.observeClick(" in src
+    assert "diag.queryTime(" in src and "diag.walkTime(" in src
+
+
+def test_debug_row_is_one_line_and_shareable():
+    a = read(APP / "assets" / "index.html")
+    assert a.count('id="reelWatchDebug"') == 1
+    assert '<section' not in a.split('id="reelWatchDebug"')[1].split("</article>")[0]
+    js = read(APP / "assets" / "reelwatch.js")
+    assert "lastBubbleRun" in js and "shareBubbleRun" in js
+    main = read(JAVA / "MainActivity.kt")
+    assert "fun lastBubbleRun(): String" in main
+    assert "fun shareBubbleRun()" in main
+    assert "Intent.ACTION_SEND" in main
+    paths = read(APP / "res" / "xml" / "file_paths.xml")
+    assert '<external-files-path name="bubble-debug" path="." />' in paths
+    for values in ("values", "values-en", "values-fr"):
+        assert "reel_watch_share_debug" in read(APP / "res" / values / "strings.xml")
+
+
+def test_diagnostics_do_not_change_tap_safety_or_budget():
+    src = read(JAVA / "ReelWatchService.kt")
+    assert "private const val RUN_BUDGET_MS = 7000L" in src
+    assert "private const val FAST_SCAN_GAP_MS = 100L" in src
+    assert "private const val MAX_SCANS = 60" in src
+    assert src.count("performAction(") == 1
+    assert src.count("Toast.makeText") == 1
+    nodes = read(JAVA / "ShareNodes.kt")
+    assert "looksLikeCopyLabel" not in _span(nodes, "fun nextAction(")
+    assert "looksLikeCopyLabel" not in _span(src, "private fun scan()")
+    assert "looksLikeCopyLabel" not in _span(src, "private fun click(")
+
+
 def test_version_bumped_consistently():
     gradle = read(ROOT / "app" / "build.gradle.kts")
     # Derived from Gradle so a later release bump does not need a test edit.
@@ -329,6 +399,7 @@ def share_nodes_run():
     lib, java = tools
     harness = """
 import com.nada.app.ShareNodes
+import com.nada.app.BubbleDiagnostics
 
 fun check(name: String, actual: Any?, expected: Any?) {
     if (actual.toString() != expected.toString()) {
@@ -384,6 +455,56 @@ fun main() {
     check("sheet copy id accepted", ShareNodes.nextAction(wait, 3, 0), ShareNodes.Step.COPY)
     check("sheet exact copy accepted", ShareNodes.nextAction(wait, 4, 0), ShareNodes.Step.COPY)
     check("unknown phase gives up", ShareNodes.nextAction(99, 4, 3), ShareNodes.Step.GIVE_UP)
+
+    // --- Terminal stage derivation (covers every readClipboard caller) ----
+    check("stage find", BubbleDiagnostics.stageFor(find, false), "no_share")
+    check("stage sheet", BubbleDiagnostics.stageFor(wait, false), "no_copy")
+    check("stage click find", BubbleDiagnostics.stageFor(find, true), "copy_click")
+    check("stage click sheet", BubbleDiagnostics.stageFor(wait, true), "copy_click")
+    check("stage unknown", BubbleDiagnostics.stageFor(99, false), "no_share")
+
+    // --- Diagnostic-only label hint never feeds the decision table --------
+    check("hint ar", ShareNodes.looksLikeCopyLabel("نسخ الرابط", null), true)
+    check("hint en", ShareNodes.looksLikeCopyLabel(null, "Copy link"), true)
+    check("hint fr", ShareNodes.looksLikeCopyLabel("Copier le lien", null), true)
+    check("hint unrelated", ShareNodes.looksLikeCopyLabel("Save", null), false)
+    check("hint null", ShareNodes.looksLikeCopyLabel(null, null), false)
+    check("hint does not score", ShareNodes.copyScore("انسخ", null, null), 0)
+    check("hint does not tap", ShareNodes.nextAction(wait, 0, 0), ShareNodes.Step.WAIT)
+
+    // --- Evidence counters and bounded report -----------------------------
+    val d = BubbleDiagnostics()
+    d.beginScan(1, wait, 120)
+    d.observeRoots(listOf("com.instagram.android:type1", "com.instagram.android:type2"), false, false)
+    d.queryTime(15)
+    d.observeCopy("query", "نسخ الرابط", null, 4, false)
+    d.walkTime(30)
+    d.observeCopy("walk", null, "Copy link", 4, true)
+    d.beginClick(copy = true)
+    d.observeClick(onSelf = false, hops = 2, result = false)
+    d.elapsedMs = 7000
+    d.stage = BubbleDiagnostics.stageFor(wait, true)
+    d.outcome = "need_link"
+    check("roots counted", d.roots, 2)
+    check("query best keeps usable gate", d.bestCopy, 0)
+    check("walk best", d.walkCopy, 4)
+    check("filtered label seen", d.copySeen, 2)
+    check("filtered count", d.copyFiltered, 1)
+    check("copy click attempted", d.copyClickTried, true)
+    check("click result", d.clickResult, "false")
+    check("click ancestor", d.clickOn, "ancestor2")
+    val summary = d.summary()
+    check("summary one line", summary.contains("\\n"), false)
+    check("summary roots", summary.contains("roots=2"), true)
+    check("summary stage", summary.contains("stage=copy_click"), true)
+    val report = d.report()
+    check("report has scan", report.contains("scan=1 phase=1 at=120 roots=2"), true)
+    check("report has windows", report.contains("com.instagram.android:type2"), true)
+    check("report has label", report.contains("نسخ الرابط"), true)
+    check("report has click", report.contains("clickOn=ancestor2"), true)
+    check("report has outcome", report.contains("outcome=need_link"), true)
+    for (i in 2..80) d.beginScan(i, wait, i.toLong())
+    check("history bounded", d.report().lines().count { it.startsWith("scan=") }, 60)
     println("ALL PASS")
 }
 """
@@ -395,7 +516,7 @@ fun main() {
         cp = os.pathsep.join(str(p) for p in lib.glob("*.jar"))
         compile_run = subprocess.run(
             [java, "-cp", cp, "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
-             str(JAVA / "ShareNodes.kt"), str(src),
+             str(JAVA / "ShareNodes.kt"), str(JAVA / "BubbleDiagnostics.kt"), str(src),
              "-cp", str(lib / "kotlin-stdlib.jar"), "-no-stdlib", "-jvm-target", "17",
              "-d", str(out)],
             capture_output=True, text=True, timeout=600,
@@ -411,7 +532,7 @@ fun main() {
 
 def test_kotlin_label_and_decision_logic(share_nodes_run):
     assert "ALL PASS" in share_nodes_run
-    assert share_nodes_run.count("ok ") >= 30
+    assert share_nodes_run.count("ok ") >= 60
 
 
 def test_stale_clipboard_cannot_download_the_wrong_reel():

@@ -16,6 +16,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.Toast
+import java.io.File
 
 /**
  * One-tap download of the reel that is on screen inside Instagram.
@@ -56,8 +57,12 @@ class ReelWatchService : AccessibilityService() {
     private var copyTapped = false
     private var copyTappedAt = 0L
     private var copyClickFailed = false
-    /** Why the run gave up: no_share / no_copy / copy_click — shown in the toast. */
+    /** Why the run gave up: no_share / no_copy / copy_click / save_start. */
     private var failStage = ""
+    /** Evidence for this run: written to a file and shown as one debug line. */
+    private var diag = BubbleDiagnostics()
+    private var startedAt = 0L
+    private var diagPersisted = false
     private var scans = 0
     private var deadline = 0L
     private var focusView: View? = null
@@ -88,6 +93,7 @@ class ReelWatchService : AccessibilityService() {
     }
 
     private fun abort() {
+        if (running) persistDiagnostics("interrupted")
         running = false
         finished = true
         handler.removeCallbacksAndMessages(null)
@@ -112,6 +118,9 @@ class ReelWatchService : AccessibilityService() {
         copyTappedAt = 0L
         copyClickFailed = false
         failStage = ""
+        diag = BubbleDiagnostics()
+        diagPersisted = false
+        startedAt = System.currentTimeMillis()
         scans = 0
         deadline = System.currentTimeMillis() + RUN_BUDGET_MS
         handler.post { scan() }
@@ -151,15 +160,37 @@ class ReelWatchService : AccessibilityService() {
         if (active != null && ShareNodes.isSearchablePackage(active.packageName?.toString(), phase)) {
             out += active
         }
+        val available = runCatching { windows }.getOrDefault(emptyList())
         val extra = runCatching {
-            windows.mapNotNull { it.root }
+            available.mapNotNull { it.root }
                 .filter { ShareNodes.isSearchablePackage(it.packageName?.toString(), phase) }
         }.getOrDefault(emptyList())
         for (root in extra) {
             if (out.size >= MAX_ROOTS) break
             if (out.none { it == root }) out += root
         }
+        recordRoots(out, available.isEmpty(), extra.isEmpty() && out.isNotEmpty())
         return out
+    }
+
+    /**
+     * Evidence for candidate (b): if the sheet window never appears in
+     * service.windows, only rootInActiveWindow is searched and the run says so.
+     */
+    private fun recordRoots(
+        roots: List<AccessibilityNodeInfo>,
+        windowsEmpty: Boolean,
+        activeOnly: Boolean,
+    ) {
+        val described = ArrayList<String>(roots.size)
+        for (root in roots) {
+            val window = runCatching { root.window }.getOrNull()
+            val pkg = runCatching { root.packageName?.toString() }.getOrNull() ?: "?"
+            // Raw window type: 1=application, 2=panel/dialog. -1=unknown.
+            val type = runCatching { window?.type }.getOrNull() ?: -1
+            described += "$pkg:type$type"
+        }
+        diag.observeRoots(described, windowsEmpty, activeOnly)
     }
 
     private class Candidate(val node: AccessibilityNodeInfo, val score: Int)
@@ -176,17 +207,24 @@ class ReelWatchService : AccessibilityService() {
             for (query in ShareNodes.SHARE_QUERIES) {
                 val hits = runCatching { root.findAccessibilityNodeInfosByText(query) }.getOrNull()
                 for (node in hits.orEmpty()) {
-                    if (!usable(node)) continue
+                    val ok = usable(node)
                     val score = ShareNodes.shareScore(descOf(node), idOf(node))
-                    if (score > (share?.score ?: 0)) share = Candidate(node, score)
+                    if (ok) {
+                        diag.observeShare(score)
+                        if (score > (share?.score ?: 0)) share = Candidate(node, score)
+                    }
                 }
                 if (share != null && share.score >= 3) break
             }
             for (query in ShareNodes.COPY_QUERIES) {
                 val hits = runCatching { root.findAccessibilityNodeInfosByText(query) }.getOrNull()
                 for (node in hits.orEmpty()) {
-                    if (!usable(node)) continue
-                    val score = ShareNodes.copyScore(textOf(node), descOf(node), idOf(node))
+                    val text = textOf(node)
+                    val desc = descOf(node)
+                    val score = ShareNodes.copyScore(text, desc, idOf(node))
+                    val ok = usable(node)
+                    diag.observeCopy("query", text, desc, score, ok)
+                    if (!ok) continue
                     if (score > (copy?.score ?: 0)) copy = Candidate(node, score)
                 }
                 if (copy != null && copy.score >= 4) break
@@ -224,12 +262,21 @@ class ReelWatchService : AccessibilityService() {
         while (stack.isNotEmpty() && budget > 0) {
             val (node, depth) = stack.removeAt(stack.size - 1)
             budget--
-            if (usable(node)) {
+            val text = textOf(node)
+            val desc = descOf(node)
+            val ok = usable(node)
+            // Observe Copy-looking labels even when the existing visibility
+            // gate rejects them. The node/depth caps still bound this pass.
+            if (ok || ShareNodes.looksLikeCopyLabel(text, desc)) {
                 val id = idOf(node)
-                val s = ShareNodes.shareScore(descOf(node), id)
-                if (s > 0 && s > (share?.score ?: 0)) share = Candidate(node, s)
-                val c = ShareNodes.copyScore(textOf(node), descOf(node), id)
-                if (c > 0 && c > (copy?.score ?: 0)) copy = Candidate(node, c)
+                val c = ShareNodes.copyScore(text, desc, id)
+                diag.observeCopy("walk", text, desc, c, ok)
+                if (ok) {
+                    val s = ShareNodes.shareScore(desc, id)
+                    diag.observeShare(s)
+                    if (s > 0 && s > (share?.score ?: 0)) share = Candidate(node, s)
+                    if (c > 0 && c > (copy?.score ?: 0)) copy = Candidate(node, c)
+                }
             }
             if (depth >= MAX_DEPTH) continue
             val count = runCatching { node.childCount }.getOrDefault(0)
@@ -245,11 +292,6 @@ class ReelWatchService : AccessibilityService() {
     private fun scan() {
         if (finished) return
         if (System.currentTimeMillis() > deadline) {
-            failStage = when {
-                copyClickFailed -> "copy_click"
-                phase == ShareNodes.PHASE_WAIT_SHEET -> "no_copy"
-                else -> "no_share"
-            }
             readClipboard()
             return
         }
@@ -263,8 +305,12 @@ class ReelWatchService : AccessibilityService() {
             return
         }
         scans++
+        val now = System.currentTimeMillis()
+        diag.beginScan(scans, phase, now - startedAt)
         val roots = searchRoots()
+        val queryStart = System.currentTimeMillis()
         var found = collectByQuery(roots)
+        diag.queryTime(System.currentTimeMillis() - queryStart)
         // Walk the tree whenever the Copy node is still missing: in the sheet
         // the bottom row also holds a "Share" label, so a found Share used to
         // suppress the walk and the Copy node was never looked for a second
@@ -273,8 +319,12 @@ class ReelWatchService : AccessibilityService() {
         if (found.second == null &&
             System.currentTimeMillis() + WALK_SLACK_MS < deadline
         ) {
+            val walkStart = System.currentTimeMillis()
             val walked = collectByIdWalk(roots)
+            diag.walkTime(System.currentTimeMillis() - walkStart)
             found = (found.first ?: walked.first) to walked.second
+        } else if (found.second == null) {
+            diag.note("walk skipped: less than WALK_SLACK_MS left")
         }
         val share = found.first
         val copy = found.second
@@ -292,6 +342,7 @@ class ReelWatchService : AccessibilityService() {
                     return
                 }
                 shareTapped = true
+                diag.shareTapped = true
                 phase = ShareNodes.PHASE_WAIT_SHEET
                 scheduleScan()
             }
@@ -307,6 +358,7 @@ class ReelWatchService : AccessibilityService() {
                     return
                 }
                 copyTapped = true
+                diag.copyTapped = true
                 copyTappedAt = System.currentTimeMillis()
                 // Close the sheet the user asked to be closed: a Back press
                 // dismisses Instagram's sheet, then the clipboard is read.
@@ -351,6 +403,9 @@ class ReelWatchService : AccessibilityService() {
      * the system share-sheet window once Share was tapped.
      */
     private fun click(node: AccessibilityNodeInfo, allowResolver: Boolean = false): Boolean {
+        // Only the Copy call allows the resolver, so this also identifies the
+        // attempted action without changing either call site's safety gate.
+        diag.beginClick(copy = allowResolver)
         var current: AccessibilityNodeInfo? = node
         var hops = 0
         while (current != null && hops < CLICK_PARENT_HOPS) {
@@ -362,16 +417,20 @@ class ReelWatchService : AccessibilityService() {
             val inScope = pkg == ShareNodes.INSTAGRAM_PACKAGE ||
                 (allowResolver && pkg != null && pkg in ShareNodes.RESOLVER_PACKAGES) ||
                 pkg.isNullOrEmpty()
-            if (!inScope) return false
+            if (!inScope) return false.also { diag.blockedClick("out_of_scope") }
             val clickable = runCatching { active.isClickable }.getOrDefault(false)
+            if (hops == 0) diag.selfClickable = clickable
             if (clickable) {
-                return runCatching {
+                val result = runCatching {
                     active.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 }.getOrDefault(false)
+                diag.observeClick(onSelf = hops == 0, hops = hops, result = result)
+                return result
             }
             current = runCatching { active.parent }.getOrNull()
             hops++
         }
+        diag.blockedClick("no_clickable_ancestor")
         return false
     }
 
@@ -382,6 +441,11 @@ class ReelWatchService : AccessibilityService() {
     private fun readClipboard() {
         if (finished || clipboardTried) return
         clipboardTried = true
+        // Covers the 7 s safety net, retryOrGiveUp and scheduleScan as well as
+        // scan's own give-up branches. No terminal path can report an empty stage.
+        if (failStage.isBlank()) {
+            failStage = BubbleDiagnostics.stageFor(phase, copyClickFailed)
+        }
         val link = reelFrom(clipText())
         if (link.isNotBlank()) {
             save(link)
@@ -476,7 +540,12 @@ class ReelWatchService : AccessibilityService() {
         handler.removeCallbacksAndMessages(null)
         dropFocusWindow()
         Prefs.setLastIgUrl(this, url)
-        runCatching { QuickSaveService.start(this, url) }.onFailure { needLinkToast() }
+        runCatching { QuickSaveService.start(this, url) }
+            .onSuccess { persistDiagnostics("saved") }
+            .onFailure {
+                failStage = "save_start"
+                needLinkToast()
+            }
     }
 
     private fun needLink() {
@@ -489,6 +558,10 @@ class ReelWatchService : AccessibilityService() {
     }
 
     private fun needLinkToast() {
+        if (failStage.isBlank()) {
+            failStage = BubbleDiagnostics.stageFor(phase, copyClickFailed)
+        }
+        persistDiagnostics("need_link")
         // Tell the user (and the next fix) exactly where the run stopped,
         // instead of the same "copy the link first" for every failure.
         val text = when (failStage) {
@@ -502,7 +575,36 @@ class ReelWatchService : AccessibilityService() {
         }
     }
 
+    /**
+     * Written only after a bubble-triggered run ends. The summary lives in a
+     * separate debug preferences file so the normal Prefs contract is untouched.
+     * The report stays in this app's private external files directory.
+     */
+    private fun persistDiagnostics(outcome: String) {
+        if (diagPersisted) return
+        diagPersisted = true
+        diag.elapsedMs = System.currentTimeMillis() - startedAt
+        diag.phase = phase
+        diag.shareTapped = shareTapped
+        diag.copyTapped = copyTapped
+        diag.stage = if (outcome == "saved") "saved" else failStage
+        diag.outcome = outcome
+        runCatching {
+            getSharedPreferences(DEBUG_PREFS, Context.MODE_PRIVATE).edit()
+                .putString(DEBUG_SUMMARY, diag.summary()).apply()
+        }
+        val dir = runCatching { getExternalFilesDir(null) }.getOrNull()
+        if (dir == null) {
+            diag.fileError = "external_files_dir_unavailable"
+        } else {
+            runCatching { File(dir, BubbleDiagnostics.FILE_NAME).writeText(diag.report()) }
+                .onFailure { diag.fileError = it.javaClass.simpleName }
+        }
+    }
+
     companion object {
+        private const val DEBUG_PREFS = "nada_bubble_debug"
+        private const val DEBUG_SUMMARY = "last_run"
         private const val RUN_BUDGET_MS = 7000L
         private const val SCAN_GAP_MS = 320L
         private const val FAST_SCAN_GAP_MS = 100L
@@ -520,6 +622,17 @@ class ReelWatchService : AccessibilityService() {
 
         @Volatile
         private var instance: ReelWatchService? = null
+
+        /** One-line evidence for the existing About card; empty before any run. */
+        fun lastRunSummary(context: Context): String = runCatching {
+            context.getSharedPreferences(DEBUG_PREFS, Context.MODE_PRIVATE)
+                .getString(DEBUG_SUMMARY, "").orEmpty()
+        }.getOrDefault("")
+
+        fun lastRunFile(context: Context): File? = runCatching {
+            context.getExternalFilesDir(null)?.let { File(it, BubbleDiagnostics.FILE_NAME) }
+                ?.takeIf { it.isFile }
+        }.getOrNull()
 
         /** True when Android reports our accessibility component as enabled. */
         fun isServiceEnabled(context: Context): Boolean {

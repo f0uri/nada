@@ -25,6 +25,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -246,6 +247,15 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { openAccessibilitySettings() }
         }
 
+        /** Additive one-line evidence row; no clipboard or screen reads here. */
+        @JavascriptInterface
+        fun lastBubbleRun(): String = ReelWatchService.lastRunSummary(this@MainActivity)
+
+        @JavascriptInterface
+        fun shareBubbleRun() {
+            runOnUiThread { shareLastBubbleRun() }
+        }
+
         /** One-line status for the check box; does not open any dialog. */
         @JavascriptInterface
         fun updateAvailable(): Boolean = AppUpdateManager.get(this@MainActivity).hasUpdate()
@@ -341,6 +351,20 @@ class MainActivity : AppCompatActivity() {
         if (!pageReady || !::web.isInitialized) return
         val on = Prefs.reelWatchOn(this) && ReelWatchService.isServiceEnabled(this)
         web.evaluateJavascript("window.nadaReelWatch && window.nadaReelWatch($on)", null)
+    }
+
+    /** Shares only the opt-in bubble diagnostic file, never screen content. */
+    private fun shareLastBubbleRun() {
+        val file = ReelWatchService.lastRunFile(this) ?: return
+        runCatching {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(send, getString(R.string.reel_watch_share_debug)))
+        }
     }
 
     private fun restoreBubble() {
