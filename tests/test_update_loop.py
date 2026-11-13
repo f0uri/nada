@@ -272,13 +272,13 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_73():
+def test_version_bumped_to_74():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 73" in gradle
-    assert 'versionName = "1.73"' in gradle
+    assert "versionCode = 74" in gradle
+    assert 'versionName = "1.74"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.73"
-    assert manifest["versionCode"] == 73
+    assert manifest["version"] == "1.74"
+    assert manifest["versionCode"] == 74
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +343,13 @@ def test_about_page_diagnostics_and_paragraphs_wrap():
     assert ".card { min-width: 0; max-width: 100%;" in css
     assert '.card p.fine[dir="ltr"] { white-space: normal;' in css
     assert "overflow-wrap: anywhere; word-break: break-word" in css
+    download_js = read(APP / "assets" / "downloaddebug.js")
+    bubble_js = read(APP / "assets" / "reelwatch.js")
+    assert 'row.textContent = line ? strings().share : ""' in download_js
+    assert 'row.textContent = line ? strings().debugShare : ""' in bubble_js
+    assert 'row.textContent = line;' not in download_js + bubble_js
+    assert "roots=" not in download_js + bubble_js
+    assert "bestCopy=" not in download_js + bubble_js
 
 
 # ---------------------------------------------------------------------------

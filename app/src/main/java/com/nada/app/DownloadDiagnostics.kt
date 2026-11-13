@@ -60,7 +60,7 @@ class DownloadDiagnostics {
         elapsedMs = System.currentTimeMillis() - startedAtMs
     }
 
-    /** One line for the About card and the prefs mirror. */
+    /** One-line internal summary, mirrored in prefs; About only shows a share label. */
     fun summary(): String = buildString {
         append("stage=").append(stage)
         append(" outcome=").append(outcome.ifBlank { "running" })

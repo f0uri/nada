@@ -39,8 +39,9 @@ import java.io.File
  *    system share sheet: the search covers both, and the Copy tap is allowed
  *    in either window. The wait phase polls fast (100 ms) so the sheet only
  *    flashes and closes by itself — the user taps nothing after the bubble;
- *  - a click that fails is retried while the run budget lasts, instead of
- *    ending the run on the first miss;
+ *  - after Share is clicked, Copy is searched for up to 10 s without another
+ *    Share tap, giving Instagram time to expose the link action; a click that
+ *    fails is retried while that search budget lasts;
  *  - if the share flow is not there, it falls back to the clipboard and then to a
  *    single short toast. No taps outside the share flow.
  *
@@ -65,6 +66,7 @@ class ReelWatchService : AccessibilityService() {
     private var diagPersisted = false
     private var scans = 0
     private var deadline = 0L
+    private var deadlineCallback: Runnable? = null
     private var focusView: View? = null
     private var focusDone = false
 
@@ -97,6 +99,7 @@ class ReelWatchService : AccessibilityService() {
         running = false
         finished = true
         handler.removeCallbacksAndMessages(null)
+        deadlineCallback = null
         dropFocusWindow()
     }
 
@@ -122,10 +125,18 @@ class ReelWatchService : AccessibilityService() {
         diagPersisted = false
         startedAt = System.currentTimeMillis()
         scans = 0
-        deadline = System.currentTimeMillis() + RUN_BUDGET_MS
+        armDeadline(RUN_BUDGET_MS)
         handler.post { scan() }
-        handler.postDelayed({ readClipboard() }, RUN_BUDGET_MS)
         return true
+    }
+
+    /** Resets the bounded scan deadline and its matching terminal callback. */
+    private fun armDeadline(durationMs: Long) {
+        deadlineCallback?.let { handler.removeCallbacks(it) }
+        deadline = System.currentTimeMillis() + durationMs
+        val callback = Runnable { readClipboard() }
+        deadlineCallback = callback
+        handler.postDelayed(callback, durationMs)
     }
 
     /**
@@ -344,6 +355,10 @@ class ReelWatchService : AccessibilityService() {
                 shareTapped = true
                 diag.shareTapped = true
                 phase = ShareNodes.PHASE_WAIT_SHEET
+                // Give Instagram's share sheet a full 10 seconds to expose
+                // Copy link. Keep scanning only; do not issue another Share
+                // tap while this phase is active.
+                armDeadline(COPY_SEARCH_BUDGET_MS)
                 scheduleScan()
             }
             ShareNodes.Step.COPY -> {
@@ -448,9 +463,12 @@ class ReelWatchService : AccessibilityService() {
      */
     private fun readClipboard() {
         if (finished || clipboardTried) return
+        deadlineCallback?.let { handler.removeCallbacks(it) }
+        deadlineCallback = null
         clipboardTried = true
-        // Covers the 7 s safety net, retryOrGiveUp and scheduleScan as well as
-        // scan's own give-up branches. No terminal path can report an empty stage.
+        // Covers both the initial Share search and the 10 s Copy search, as
+        // well as retryOrGiveUp and scheduleScan. No terminal path can report
+        // an empty stage.
         if (failStage.isBlank()) {
             failStage = BubbleDiagnostics.stageFor(phase, copyClickFailed)
         }
@@ -546,6 +564,7 @@ class ReelWatchService : AccessibilityService() {
         finished = true
         running = false
         handler.removeCallbacksAndMessages(null)
+        deadlineCallback = null
         dropFocusWindow()
         Prefs.setLastIgUrl(this, url)
         runCatching { QuickSaveService.start(this, url) }
@@ -561,6 +580,7 @@ class ReelWatchService : AccessibilityService() {
         finished = true
         running = false
         handler.removeCallbacksAndMessages(null)
+        deadlineCallback = null
         dropFocusWindow()
         needLinkToast()
     }
@@ -614,9 +634,10 @@ class ReelWatchService : AccessibilityService() {
         private const val DEBUG_PREFS = "nada_bubble_debug"
         private const val DEBUG_SUMMARY = "last_run"
         private const val RUN_BUDGET_MS = 7000L
+        private const val COPY_SEARCH_BUDGET_MS = 10_000L
         private const val SCAN_GAP_MS = 320L
         private const val FAST_SCAN_GAP_MS = 100L
-        private const val MAX_SCANS = 60
+        private const val MAX_SCANS = 140
         private const val MAX_NODES = 900
         private const val WALK_SLACK_MS = 900L
         private const val MAX_DEPTH = 40
@@ -631,7 +652,7 @@ class ReelWatchService : AccessibilityService() {
         @Volatile
         private var instance: ReelWatchService? = null
 
-        /** One-line evidence for the existing About card; empty before any run. */
+        /** Internal summary used to decide whether About shows its share control. */
         fun lastRunSummary(context: Context): String = runCatching {
             context.getSharedPreferences(DEBUG_PREFS, Context.MODE_PRIVATE)
                 .getString(DEBUG_SUMMARY, "").orEmpty()

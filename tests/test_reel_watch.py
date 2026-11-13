@@ -317,7 +317,8 @@ def test_every_terminal_path_derives_a_stage():
     for span in (read_clip, toast):
         assert "BubbleDiagnostics.stageFor(phase, copyClickFailed)" in span
     # The three bypass callers still exist and still terminate through it.
-    assert "handler.postDelayed({ readClipboard() }, RUN_BUDGET_MS)" in src
+    assert "armDeadline(RUN_BUDGET_MS)" in src
+    assert "armDeadline(COPY_SEARCH_BUDGET_MS)" in _span(src, "private fun scan()")
     for name in ("private fun retryOrGiveUp()", "private fun scheduleScan()"):
         assert "readClipboard()" in _span(src, name)
     # The safety rule itself is pure and tested without Android.
@@ -351,6 +352,9 @@ def test_debug_row_is_one_line_and_shareable():
     assert '<section' not in a.split('id="reelWatchDebug"')[1].split("</article>")[0]
     js = read(APP / "assets" / "reelwatch.js")
     assert "lastBubbleRun" in js and "shareBubbleRun" in js
+    assert 'row.textContent = line ? strings().debugShare : ""' in js
+    assert 'row.textContent = line;' not in js
+    assert "مشاركة تشخيص آخر ضغطة" in js
     main = read(JAVA / "MainActivity.kt")
     assert "fun lastBubbleRun(): String" in main
     assert "fun shareBubbleRun()" in main
@@ -364,8 +368,17 @@ def test_debug_row_is_one_line_and_shareable():
 def test_diagnostics_do_not_change_tap_safety_or_budget():
     src = read(JAVA / "ReelWatchService.kt")
     assert "private const val RUN_BUDGET_MS = 7000L" in src
+    assert "private const val COPY_SEARCH_BUDGET_MS = 10_000L" in src
     assert "private const val FAST_SCAN_GAP_MS = 100L" in src
-    assert "private const val MAX_SCANS = 60" in src
+    assert "private const val MAX_SCANS = 140" in src
+    scan = _span(src, "private fun scan()")
+    share_branch = scan.split("ShareNodes.Step.SHARE ->")[1].split("ShareNodes.Step.COPY ->")[0]
+    assert "shareTapped = true" in share_branch
+    assert "phase = ShareNodes.PHASE_WAIT_SHEET" in share_branch
+    assert "armDeadline(COPY_SEARCH_BUDGET_MS)" in share_branch
+    # One Share attempt per run; the longer window only polls for Copy.
+    assert share_branch.count("click(share.node)") == 1
+    assert "FAST_SCAN_GAP_MS" in src
     assert src.count("performAction(") == 1
     assert src.count("Toast.makeText") == 1
     nodes = read(JAVA / "ShareNodes.kt")

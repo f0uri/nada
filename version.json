@@ -1,6 +1,6 @@
 {
-  "version": "1.73",
-  "versionCode": 73,
+  "version": "1.74",
+  "versionCode": 74,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.73: downloads now show both Listnr and quicksave fallback outcomes, so a reel-specific Listnr miss no longer hides why fallback failed. The About page wraps paragraphs and diagnostic lines within the screen instead of clipping them."
+  "changelog": "IG SAVE 1.74: one-tap reel download now keeps searching for Copy link for 10 seconds after opening Instagram's share sheet. The About page shows clean share-diagnostic labels instead of raw diagnostic tokens."
 }
