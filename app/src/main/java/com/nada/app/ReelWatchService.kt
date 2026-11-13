@@ -57,6 +57,9 @@ class ReelWatchService : AccessibilityService() {
     private var shareTapped = false
     private var copyTapped = false
     private var copyTappedAt = 0L
+    @Volatile private var clipboardChangedAfterCopy = false
+    private var watchedClipboard: ClipboardManager? = null
+    private var clipboardChangeListener: ClipboardManager.OnPrimaryClipChangedListener? = null
     private var copyClickFailed = false
     /** Why the run gave up: no_share / no_copy / copy_click / save_start. */
     private var failStage = ""
@@ -100,6 +103,7 @@ class ReelWatchService : AccessibilityService() {
         finished = true
         handler.removeCallbacksAndMessages(null)
         deadlineCallback = null
+        stopClipboardWatch()
         dropFocusWindow()
     }
 
@@ -117,8 +121,10 @@ class ReelWatchService : AccessibilityService() {
         clipboardTried = false
         phase = ShareNodes.PHASE_FIND_SHARE
         shareTapped = false
+        stopClipboardWatch()
         copyTapped = false
         copyTappedAt = 0L
+        clipboardChangedAfterCopy = false
         copyClickFailed = false
         failStage = ""
         diag = BubbleDiagnostics()
@@ -367,7 +373,9 @@ class ReelWatchService : AccessibilityService() {
                     readClipboard()
                     return
                 }
+                watchClipboardForCopy()
                 if (!click(copy.node, allowResolver = true)) {
+                    stopClipboardWatch()
                     copyClickFailed = true
                     retryOrGiveUp()
                     return
@@ -375,9 +383,9 @@ class ReelWatchService : AccessibilityService() {
                 copyTapped = true
                 diag.copyTapped = true
                 copyTappedAt = System.currentTimeMillis()
-                // Close the sheet the user asked to be closed: a Back press
-                // dismisses Instagram's sheet, then the clipboard is read.
-                runCatching { performGlobalAction(GLOBAL_ACTION_BACK) }
+                // Wait for a fresh clipboard write before closing the sheet.
+                // Otherwise Back can race Instagram's Copy handler and leave
+                // the previous reel URL in the clipboard.
                 handler.postDelayed({ readClipboard() }, COPY_SETTLE_MS)
             }
             ShareNodes.Step.WAIT -> scheduleScan()
@@ -468,12 +476,21 @@ class ReelWatchService : AccessibilityService() {
         clipboardTried = true
         // Covers both the initial Share search and the 10 s Copy search, as
         // well as retryOrGiveUp and scheduleScan. No terminal path can report
-        // an empty stage.
+        // an empty stage. Never save an old clipboard URL unless this run
+        // actually confirmed a Copy action.
         if (failStage.isBlank()) {
             failStage = BubbleDiagnostics.stageFor(phase, copyClickFailed)
         }
+        if (!copyTapped) {
+            stopClipboardWatch()
+            diag.note("clipboard ignored: Copy action not confirmed")
+            needLink()
+            return
+        }
         val link = reelFrom(clipText())
         if (link.isNotBlank()) {
+            stopClipboardWatch()
+            dismissShareSheet()
             save(link)
             return
         }
@@ -481,19 +498,72 @@ class ReelWatchService : AccessibilityService() {
         // focus for a moment with a 1x1 transparent accessibility overlay.
         withFocus {
             val second = reelFrom(clipText())
-            if (second.isNotBlank()) save(second) else needLink()
+            stopClipboardWatch()
+            if (second.isNotBlank()) {
+                dismissShareSheet()
+                save(second)
+            } else {
+                if (copyTapped) {
+                    failStage = "copy_stale"
+                    diag.note("Copy acted but clipboard did not refresh")
+                }
+                needLink()
+            }
         }
+    }
+
+    /** Dismiss Instagram's sheet only after a fresh copied URL is confirmed. */
+    private fun dismissShareSheet() {
+        if (shareTapped && copyTapped) {
+            runCatching { performGlobalAction(GLOBAL_ACTION_BACK) }
+        }
+    }
+
+    /** Watch for a clipboard write specifically caused by this Copy action. */
+    private fun watchClipboardForCopy() {
+        stopClipboardWatch()
+        clipboardChangedAfterCopy = false
+        val manager = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return
+        val listener = ClipboardManager.OnPrimaryClipChangedListener {
+            if (!clipboardChangedAfterCopy) diag.note("clipboard changed after Copy tap")
+            clipboardChangedAfterCopy = true
+        }
+        if (runCatching { manager.addPrimaryClipChangedListener(listener) }.isSuccess) {
+            watchedClipboard = manager
+            clipboardChangeListener = listener
+        } else {
+            diag.note("clipboard change watch unavailable")
+        }
+    }
+
+    private fun stopClipboardWatch() {
+        val manager = watchedClipboard
+        val listener = clipboardChangeListener
+        if (manager != null && listener != null) {
+            runCatching { manager.removePrimaryClipChangedListener(listener) }
+        }
+        watchedClipboard = null
+        clipboardChangeListener = null
     }
 
     private fun clipText(): String {
         val manager = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return ""
         return runCatching {
             val clip = manager.primaryClip ?: return@runCatching ""
-            // After we press "Copy link" the clip must be one Instagram wrote
-            // just now. A stale link would silently download the wrong reel.
+            // Only use a link when the clipboard changed after this tap, or its
+            // platform timestamp proves it is fresh. A missing timestamp is
+            // not permission to reuse whatever reel URL was already there.
             if (copyTapped) {
                 val stamped = runCatching { clip.description?.timestamp ?: 0L }.getOrDefault(0L)
-                if (stamped != 0L && stamped + CLIP_SKEW_MS < copyTappedAt) return@runCatching ""
+                val fresh = if (stamped != 0L) {
+                    stamped + CLIP_SKEW_MS >= copyTappedAt
+                } else {
+                    clipboardChangedAfterCopy
+                }
+                if (!fresh) {
+                    diag.note("clipboard not fresh after Copy tap")
+                    return@runCatching ""
+                }
             }
             clip.getItemAt(0)?.coerceToText(this)?.toString().orEmpty()
         }.getOrDefault("")
@@ -565,6 +635,7 @@ class ReelWatchService : AccessibilityService() {
         running = false
         handler.removeCallbacksAndMessages(null)
         deadlineCallback = null
+        stopClipboardWatch()
         dropFocusWindow()
         Prefs.setLastIgUrl(this, url)
         runCatching { QuickSaveService.start(this, url) }
@@ -581,6 +652,7 @@ class ReelWatchService : AccessibilityService() {
         running = false
         handler.removeCallbacksAndMessages(null)
         deadlineCallback = null
+        stopClipboardWatch()
         dropFocusWindow()
         needLinkToast()
     }
@@ -595,6 +667,7 @@ class ReelWatchService : AccessibilityService() {
         val text = when (failStage) {
             "no_copy" -> getString(R.string.reel_watch_no_copy)
             "copy_click" -> getString(R.string.reel_watch_copy_click_failed)
+            "copy_stale" -> getString(R.string.reel_watch_copy_stale)
             "no_share" -> getString(R.string.reel_watch_no_share)
             else -> getString(R.string.reel_watch_need_link)
         }
