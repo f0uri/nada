@@ -56,7 +56,7 @@
     <string name="reel_watch_need_link">Copiez d\'abord le lien du reel</string>
     <string name="reel_watch_no_copy">Bouton Copier le lien introuvable dans la feuille</string>
     <string name="reel_watch_copy_click_failed">Copier le lien trouvé mais impossible d\'appuyer dessus</string>
-    <string name="reel_watch_copy_stale">Impossible de confirmer la copie du nouveau lien ; aucun ancien lien n'a été téléchargé</string>
+    <string name="reel_watch_copy_stale">Copie du nouveau lien non confirmée ; aucun ancien lien téléchargé</string>
     <string name="reel_watch_share_debug">Partager le diagnostic du bouton</string>
     <string name="reel_watch_no_share">Bouton Partager introuvable</string>
     <string name="reel_watch_service_label">IG SAVE · Télécharger le reel que vous regardez</string>
