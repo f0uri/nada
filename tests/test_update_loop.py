@@ -275,13 +275,53 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_63():
+def test_version_bumped_to_64():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 63" in gradle
-    assert 'versionName = "1.63"' in gradle
+    assert "versionCode = 64" in gradle
+    assert 'versionName = "1.64"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.63"
-    assert manifest["versionCode"] == 63
+    assert manifest["version"] == "1.64"
+    assert manifest["versionCode"] == 64
+
+
+def test_resume_pending_installs_without_permission():
+    """1.64: a missing install permission must never strand the dialog.
+
+    After the download, resumePending used to return silently when
+    canInstall() was false, freezing the dialog at 100% "installing"
+    (1.63 on-device report). It must hand the APK to install(), which
+    shows the "allow installs" error with the Settings action instead.
+    """
+    src = read(UPDATER)
+    assert "if (canInstall()) install(activity, file, update)" not in src
+    assert "install(activity, file, update)" in src
+    assert "R.string.update_allow_installs" in src
+
+
+def test_download_bar_matches_preview():
+    """1.64: the download bar matches the approved preview.
+
+    Shimmer sweep + glowing tip riding the fill + frosted-glass card.
+    """
+    layout = read(APP / "res" / "layout" / "dialog_update_glassy.xml")
+    for view_id in ("update_bar_wrap", "update_shimmer", "update_tip"):
+        assert view_id in layout, view_id
+    shimmer = read(APP / "res" / "drawable" / "update_shimmer.xml")
+    assert "gradient" in shimmer and "#99FFFFFF" in shimmer
+    tip = read(APP / "res" / "drawable" / "update_tip_glow.xml")
+    assert 'android:type="radial"' in tip and "gradientRadius" in tip
+    src = read(UPDATER)
+    for marker in (
+        "fun positionTip()",
+        "fun startShimmer()",
+        "fun applyFrost(",
+        "ObjectAnimator.ofFloat",
+        "FLAG_BLUR_BEHIND",
+        "LAYOUT_DIRECTION_RTL",
+        "stopShimmer()",
+        "barWrap = null",
+    ):
+        assert marker in src, marker
 
 
 def test_webview_is_trilingual():

@@ -25,15 +25,40 @@
         android:textSize="40sp"
         android:textStyle="bold" />
 
-    <ProgressBar
-        android:id="@+id/update_bar"
-        style="?android:attr/progressBarStyleHorizontal"
+    <!-- Gold bar with a shimmer sweep and a glowing tip, like the approved
+         preview: the tip rides the leading edge of the fill, the shimmer
+         sweeps across while downloading. The wrap is taller than the bar so
+         the 14dp tip is never clipped. -->
+    <FrameLayout
+        android:id="@+id/update_bar_wrap"
         android:layout_width="match_parent"
-        android:layout_height="8dp"
-        android:layout_marginTop="12dp"
-        android:max="100"
-        android:progress="0"
-        android:progressDrawable="@drawable/update_progress_gold" />
+        android:layout_height="16dp"
+        android:layout_marginTop="12dp">
+
+        <ProgressBar
+            android:id="@+id/update_bar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:layout_gravity="center_vertical"
+            android:max="100"
+            android:progress="0"
+            android:progressDrawable="@drawable/update_progress_gold" />
+
+        <View
+            android:id="@+id/update_shimmer"
+            android:layout_width="120dp"
+            android:layout_height="8dp"
+            android:layout_gravity="center_vertical"
+            android:background="@drawable/update_shimmer" />
+
+        <View
+            android:id="@+id/update_tip"
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_gravity="center_vertical"
+            android:background="@drawable/update_tip_glow" />
+    </FrameLayout>
 
     <TextView
         android:id="@+id/update_status"

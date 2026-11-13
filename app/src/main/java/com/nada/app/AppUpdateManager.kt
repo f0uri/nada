@@ -1,5 +1,7 @@
 package com.nada.app
 
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.Dialog
@@ -14,6 +16,9 @@ import android.os.Looper
 import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
+import android.view.Window
+import android.view.WindowManager
+import android.view.animation.LinearInterpolator
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -64,6 +69,10 @@ class AppUpdateManager private constructor(private val app: Context) {
     private var bar: ProgressBar? = null
     private var label: TextView? = null
     private var percentView: TextView? = null
+    private var barWrap: View? = null
+    private var shimmerView: View? = null
+    private var tipView: View? = null
+    private var shimmerAnimator: ObjectAnimator? = null
     private var host: Activity? = null
 
     /** True while a download or an install session is in flight. */
@@ -148,15 +157,23 @@ class AppUpdateManager private constructor(private val app: Context) {
             pendingUpdate = null
             return
         }
-        if (canInstall()) install(activity, file, update)
+        // Never gate on canInstall() here: install() itself shows the
+        // "allow installs" error with the Settings action when the permission
+        // is missing. Gating here silently stranded the dialog on 100%
+        // "installing" (1.63 on-device report) with no way forward.
+        install(activity, file, update)
     }
 
     fun dismiss() {
+        stopShimmer()
         runCatching { dialog?.dismiss() }
         dialog = null
         bar = null
         label = null
         percentView = null
+        barWrap = null
+        shimmerView = null
+        tipView = null
     }
 
     /** Drops the Activity reference so a background result cannot leak it. */
@@ -257,6 +274,7 @@ class AppUpdateManager private constructor(private val app: Context) {
         d.setCancelable(true)
         d.setOnCancelListener { onCancel?.invoke() }
         d.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        applyFrost(d.window)
         dialog = d
         d.show()
     }
@@ -362,6 +380,9 @@ class AppUpdateManager private constructor(private val app: Context) {
             isIndeterminate = progress == 0
             progress = this@AppUpdateManager.progress
         }
+        barWrap = root.findViewById(R.id.update_bar_wrap)
+        shimmerView = root.findViewById(R.id.update_shimmer)
+        tipView = root.findViewById(R.id.update_tip)
         label?.text = progressText
         percentView?.text = "${progress}%"
         dialog = AlertDialog.Builder(activity)
@@ -371,6 +392,9 @@ class AppUpdateManager private constructor(private val app: Context) {
             .setNegativeButton(R.string.update_later, null)
             .show()
         dialog?.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        applyFrost(dialog?.window)
+        positionTip()
+        startShimmer()
     }
 
     /** Short error with a retry action; never a frozen progress dialog. */
@@ -399,6 +423,55 @@ class AppUpdateManager private constructor(private val app: Context) {
         bar?.let {
             it.isIndeterminate = progress == 0
             it.progress = progress
+        }
+        positionTip()
+    }
+
+    /** Puts the glowing tip on the leading edge of the fill (RTL-aware). */
+    private fun positionTip() {
+        val wrap = barWrap ?: return
+        val tip = tipView ?: return
+        if (wrap.width == 0) {
+            wrap.post { positionTip() }
+            return
+        }
+        val fraction = progress.coerceIn(0, 100) / 100f
+        val rtl = wrap.layoutDirection == View.LAYOUT_DIRECTION_RTL
+        val centerX = if (rtl) wrap.width * (1f - fraction) else wrap.width * fraction
+        tip.translationX = centerX - tip.width / 2f
+    }
+
+    /** White highlight sweeping across the gold bar while downloading. */
+    private fun startShimmer() {
+        val wrap = barWrap ?: return
+        val shimmer = shimmerView ?: return
+        stopShimmer()
+        wrap.post {
+            if (dialog == null || shimmerView == null) return@post
+            val w = wrap.width
+            val sw = shimmer.width
+            if (w == 0 || sw == 0) return@post
+            shimmerAnimator = ObjectAnimator.ofFloat(shimmer, "translationX", -sw.toFloat(), w.toFloat()).apply {
+                duration = 1600L
+                interpolator = LinearInterpolator()
+                repeatCount = ValueAnimator.INFINITE
+                start()
+            }
+        }
+    }
+
+    private fun stopShimmer() {
+        shimmerAnimator?.cancel()
+        shimmerAnimator = null
+    }
+
+    /** Frosted-glass blur behind the dialog (API 31+); harmless older. */
+    private fun applyFrost(window: Window?) {
+        if (Build.VERSION.SDK_INT < 31 || window == null) return
+        window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+        window.attributes?.let { attrs ->
+            attrs.blurBehindRadius = 32
+            window.attributes = attrs
         }
     }
 
