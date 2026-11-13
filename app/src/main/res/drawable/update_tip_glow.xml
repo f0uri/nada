@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bright dot that rides the leading edge of the gold bar. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <gradient
+        android:type="radial"
+        android:gradientRadius="7dp"
+        android:startColor="#FFFFFFFF"
+        android:centerColor="#FFFFD54F"
+        android:endColor="#00FFD4AF37" />
+</shape>
