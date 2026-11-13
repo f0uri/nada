@@ -275,13 +275,13 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_71():
+def test_version_bumped_to_72():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 71" in gradle
-    assert 'versionName = "1.71"' in gradle
+    assert "versionCode = 72" in gradle
+    assert 'versionName = "1.72"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.71"
-    assert manifest["versionCode"] == 71
+    assert manifest["version"] == "1.72"
+    assert manifest["versionCode"] == 72
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +306,23 @@ def test_quicksave_fallback_when_listnr_cannot_find_the_reel():
     diag = read(JAVA / "DownloadDiagnostics.kt")
     assert "var viaQuickSave" in diag
     assert '" via="' in diag
+
+
+# ---------------------------------------------------------------------------
+# 1.72: the WebView fits the fixed 402px UI to the screen (no zoomed page)
+# ---------------------------------------------------------------------------
+
+def test_webview_fits_the_page_to_the_screen():
+    """1.72: the About page looked zoomed in — content cut off on the sides.
+    The main WebView must honour the viewport meta and shrink the fixed
+    design to the display width, and system font scaling must not blow the
+    fixed layout up.
+    """
+    src = read(JAVA / "MainActivity.kt")
+    web = src.split("web.settings.apply {")[1].split("}")[0]
+    assert "useWideViewPort = true" in web
+    assert "loadWithOverviewMode = true" in web
+    assert "textZoom = 100" in web
 
 
 # ---------------------------------------------------------------------------
