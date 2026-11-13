@@ -1,6 +1,6 @@
 {
-  "version": "1.69",
-  "versionCode": 69,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.69: the bubble Copy tap now tries every clickable ancestor up the chain until one actually acts \u2014 the first row ancestor that swallowed the tap no longer fails the run, and the diagnostics trail records each attempt. Node matching, tap safety and the 7-second budget are unchanged."
+  "changelog": "IG SAVE 1.70: download failures now show listnr's real status and message (e.g. HTTP 400: No video found) instead of the mapped 502; transport retries unchanged.",
+  "version": "1.70",
+  "versionCode": 70
 }
