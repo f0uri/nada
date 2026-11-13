@@ -1,1 +1,6 @@
-{"version":"1.66","versionCode":66,"apkUrl":"https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk","changelog":"IG SAVE 1.66: the bubble looks for Copy link a second way (tree walk) even when a Share label is already found, the give-up message now says exactly where the run stopped, and the sheet closes itself after a successful copy."}
+{
+  "version": "1.66",
+  "versionCode": 66,
+  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
+  "changelog": "IG SAVE 1.66: the bubble looks for Copy link a second way (tree walk) even when a Share label is already found, the give-up message now says exactly where the run stopped, and the sheet closes itself after a successful copy."
+}
