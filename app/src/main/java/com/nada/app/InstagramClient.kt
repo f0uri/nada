@@ -57,11 +57,15 @@ class InstagramClient {
 
     @Volatile private var csrf: String = ""
 
-    fun resolve(rawUrl: String): JSONObject {
+    fun resolve(rawUrl: String, diag: DownloadDiagnostics? = null): JSONObject {
         val url = expandIfNeeded(rawUrl)
         val shortcode = parseShortcode(url)
-        val video = fetchMediaItem(shortcode)
-        if (!hostOk(video.url)) throw ApiException(502, "upstream")
+        val video = fetchMediaItem(shortcode, diag)
+        if (!hostOk(video.url)) {
+            diag?.note("resolved url host not allowed")
+            diag?.cdnDetail = "host"
+            throw ApiException(400, "host")
+        }
         val thumb = video.thumb.takeIf { it.isNotBlank() && hostOk(it) }
         val media = JSONObject()
             .put("id", "1")
@@ -90,11 +94,11 @@ class InstagramClient {
     }
 
     /** The sole media-item source. Failure is returned to the existing UI. */
-    private fun fetchMediaItem(shortcode: String): ListnrService.Video =
-        listnr.resolve("https://www.instagram.com/reel/$shortcode/")
+    private fun fetchMediaItem(shortcode: String, diag: DownloadDiagnostics?): ListnrService.Video =
+        listnr.resolve("https://www.instagram.com/reel/$shortcode/", diag)
 
-    fun prepareSave(rawUrl: String): SaveBatch {
-        val post = resolve(rawUrl)
+    fun prepareSave(rawUrl: String, diag: DownloadDiagnostics? = null): SaveBatch {
+        val post = resolve(rawUrl, diag)
         val media = post.optJSONArray("media") ?: JSONArray()
         val code = post.optString("shortcode").ifBlank { "post" }
         val files = mutableListOf<SaveFile>()
@@ -111,25 +115,54 @@ class InstagramClient {
 
     fun openMedia(token: String): MediaStream = pullFile(unsignUrl(token))
 
-    /** Downloads the CDN URL exactly as returned, including its signed query. */
-    fun pullFile(remoteUrl: String): MediaStream {
-        if (!hostOk(remoteUrl)) throw ApiException(400, "host")
+    /**
+     * Downloads the CDN URL exactly as returned, including its signed query.
+     * A transport failure or a 5xx is retried once with a fresh request, and
+     * every outcome names its real cause (host/status/classified io error)
+     * instead of dying as a generic network failure.
+     */
+    fun pullFile(remoteUrl: String, diag: DownloadDiagnostics? = null): MediaStream {
+        if (!hostOk(remoteUrl)) {
+            diag?.cdnDetail = "host"
+            diag?.note("cdn host not allowed")
+            throw ApiException(400, "host")
+        }
+        val host = runCatching { remoteUrl.toHttpUrlOrNull()?.host }.getOrNull().orEmpty().ifBlank { "?" }
+        if (diag != null) diag.cdnHost = host
         val request = Request.Builder()
             .url(remoteUrl)
             .header("User-Agent", UA)
             .header("Accept", "*/*")
             .build()
-        val response = downloadClient.newCall(request).execute()
-        if (response.isSuccessful) {
-            return MediaStream(
-                response,
-                response.header("content-type") ?: "application/octet-stream",
-                remoteUrl,
-            )
+        var attempt = 0
+        while (true) {
+            attempt++
+            val response = try {
+                downloadClient.newCall(request).execute()
+            } catch (ex: java.io.IOException) {
+                val kind = DownloadDiagnostics.classify(ex)
+                diag?.note("cdn $kind (attempt $attempt): $host")
+                if (attempt < MAX_CDN_ATTEMPTS) continue
+                diag?.cdnDetail = "$kind ×$attempt"
+                throw ApiException(502, "cdn")
+            }
+            if (response.isSuccessful) {
+                diag?.note("cdn ok HTTP ${response.code} (attempt $attempt)")
+                if (diag != null) diag.cdnDetail = "HTTP ${response.code}"
+                return MediaStream(
+                    response,
+                    response.header("content-type") ?: "application/octet-stream",
+                    remoteUrl,
+                )
+            }
+            val code = response.code
+            response.close()
+            diag?.note("cdn HTTP $code (attempt $attempt): $host")
+            if (diag != null) diag.cdnDetail = "HTTP $code"
+            // Only a transient 5xx is worth one retry; 4xx will not change.
+            if (attempt < MAX_CDN_ATTEMPTS && code >= 500) continue
+            throw ApiException(if (code == 429) 429 else 502, if (code == 429) "rate" else "cdn")
         }
-        val code = response.code
-        response.close()
-        throw ApiException(if (code == 429) 429 else 502, if (code == 429) "rate" else "cdn")
     }
 
     fun warmSession() {
@@ -503,6 +536,7 @@ class InstagramClient {
             RegexOption.IGNORE_CASE,
         )
         private val RESERVED = setOf("p", "reel", "reels", "tv", "stories", "explore", "accounts", "about", "legal", "privacy", "terms", "lite", "share", "s")
+        private const val MAX_CDN_ATTEMPTS = 2
         private val ALLOWED = listOf("cdninstagram.com", "fbcdn.net", "cdninstagram.net", "fbsbx.com")
     }
 }

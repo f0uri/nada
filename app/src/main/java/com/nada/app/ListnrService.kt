@@ -14,7 +14,13 @@ class ListnrService(
 ) {
     data class Video(val url: String, val thumb: String)
 
-    fun resolve(postUrl: String): Video {
+    /**
+     * Resolves through listnr only. A transient transport failure (timeout,
+     * connect, TLS, read) is retried once after a short backoff — one slow
+     * handshake must not kill every save. HTTP status errors are surfaced
+     * immediately with their real code, never as a generic network error.
+     */
+    fun resolve(postUrl: String, diag: DownloadDiagnostics? = null): Video {
         val payload = JSONObject()
             .put("url", postUrl)
             .put("platform", "instagram")
@@ -29,39 +35,66 @@ class ListnrService(
             .header("user-agent", UA)
             .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
             .build()
-        try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw InstagramClient.ApiException(
-                        if (response.code == 429) 429 else 502,
-                        if (response.code == 429) "rate" else "upstream",
-                    )
+        var attempt = 0
+        while (true) {
+            attempt++
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        diag?.note("listnr HTTP ${response.code} (attempt $attempt)")
+                        diag?.listnrDetail = "HTTP ${response.code}"
+                        throw InstagramClient.ApiException(
+                            if (response.code == 429) 429 else 502,
+                            if (response.code == 429) "rate" else "upstream",
+                        )
+                    }
+                    val body = response.body?.string().orEmpty()
+                    val json = try {
+                        JSONObject(body)
+                    } catch (_: Exception) {
+                        diag?.note("listnr bad json (attempt $attempt)")
+                        diag?.listnrDetail = "bad json"
+                        throw InstagramClient.ApiException(502, "upstream")
+                    }
+                    // optString does not coerce arbitrary objects/arrays into usable URLs.
+                    val url = json.opt("url").let { if (it is String) it.trim() else "" }
+                    if (url.isBlank()) {
+                        diag?.note("listnr empty url (attempt $attempt)")
+                        diag?.listnrDetail = "empty url"
+                        throw InstagramClient.ApiException(404, "empty")
+                    }
+                    val data = json.optJSONObject("data")
+                    val thumb = data?.opt("thumb").let { if (it is String) it.trim() else "" }
+                    diag?.note("listnr ok (attempt $attempt)")
+                    diag?.listnrDetail = "HTTP ${response.code}"
+                    return Video(url, thumb)
                 }
-                val body = response.body?.string().orEmpty()
-                val json = try {
-                    JSONObject(body)
-                } catch (_: Exception) {
-                    throw InstagramClient.ApiException(502, "upstream")
+            } catch (ex: InstagramClient.ApiException) {
+                // Status errors already carry their real code and detail.
+                throw ex
+            } catch (ex: IOException) {
+                // Connect/read/write failures and the 20-second call timeout.
+                val kind = DownloadDiagnostics.classify(ex)
+                diag?.note("listnr $kind (attempt $attempt)")
+                if (attempt < MAX_ATTEMPTS) {
+                    runCatching { Thread.sleep(RETRY_BACKOFF_MS) }
+                    continue
                 }
-                // optString does not coerce arbitrary objects/arrays into usable URLs.
-                val url = json.opt("url").let { if (it is String) it.trim() else "" }
-                if (url.isBlank()) throw InstagramClient.ApiException(404, "empty")
-                val data = json.optJSONObject("data")
-                val thumb = data?.opt("thumb").let { if (it is String) it.trim() else "" }
-                return Video(url, thumb)
+                diag?.listnrDetail = "$kind ×$attempt"
+                throw InstagramClient.ApiException(502, "network")
+            } catch (ex: Exception) {
+                diag?.note("listnr error (attempt $attempt): ${ex.javaClass.simpleName}")
+                diag?.listnrDetail = "error"
+                throw InstagramClient.ApiException(502, "upstream")
             }
-        } catch (ex: InstagramClient.ApiException) {
-            throw ex
-        } catch (_: IOException) {
-            // Includes connect/read/write failures and the 15-second call timeout.
-            throw InstagramClient.ApiException(502, "network")
-        } catch (_: Exception) {
-            throw InstagramClient.ApiException(502, "upstream")
         }
     }
 
     companion object {
         const val ENDPOINT = "https://bff.listnr.tech/backend/user/getInfoYT"
+        const val MAX_ATTEMPTS = 2
+        const val RETRY_BACKOFF_MS = 700L
+        const val CALL_TIMEOUT_SECONDS = 20L
         private const val UA =
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36"
 
@@ -69,7 +102,7 @@ class ListnrService(
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
-            .callTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
             .build()
     }

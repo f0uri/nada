@@ -25,6 +25,7 @@ class QuickSaveService : Service() {
     private val jobs = ArrayDeque<SaveJob>()
     private val lock = Any()
     private var working = false
+    private var diag = DownloadDiagnostics()
 
     private class SaveJob(val url: String, val stream: String)
 
@@ -56,8 +57,20 @@ class QuickSaveService : Service() {
                 val next = synchronized(lock) {
                     if (jobs.isNotEmpty()) jobs.removeFirst() else null
                 } ?: break
-                runCatching { runSave(next) }.onFailure {
-                    notifyDone(getString(R.string.save_fail_net), error = true)
+                diag = DownloadDiagnostics().also {
+                    it.url = next.url.ifBlank { next.stream }
+                    it.begin(DownloadDiagnostics.STEP_START)
+                }
+                try {
+                    runSave(next)
+                    if (diag.outcome.isBlank()) diag.finish("ok")
+                } catch (ex: Exception) {
+                    val detail = (ex.message ?: ex.javaClass.simpleName).take(60)
+                    diag.note("unexpected ${diag.stage}: $detail")
+                    diag.finish("error:${diag.stage}")
+                    notifyDone(unexpectedAt(diag.stage, ex), error = true)
+                } finally {
+                    persist(diag)
                 }
             }
         } finally {
@@ -78,16 +91,18 @@ class QuickSaveService : Service() {
         if (job.stream.isNotBlank() && shouldSaveStream(job)) {
             goForeground(getString(R.string.save_stage_file), busy = true)
             val ok = runCatching { saveStreamQuiet(job.stream) }.isSuccess
+            if (!ok) diag.note("stream save failed; falling back to link")
             if (ok) return
         }
         if (job.url.isBlank()) {
-            notifyDone(getString(R.string.save_fail_url), error = true)
+            failWith(getString(R.string.save_fail_url))
             return
         }
         goForeground(getString(R.string.save_stage_video), busy = true)
         // Listnr is the only resolve source. A failure uses the existing error
         // notification; there is no resolver retry chain or page-sniffing fallback.
-        val result = runCatching { instagram.prepareSave(job.url) }
+        diag.begin(DownloadDiagnostics.STEP_LISTNR)
+        val result = runCatching { instagram.prepareSave(job.url, diag) }
         result.fold(
             onSuccess = { batch ->
                 try {
@@ -95,11 +110,12 @@ class QuickSaveService : Service() {
                     for (file in batch.files) writeRemote(file)
                     val who = "@${batch.username}"
                     val detail = getString(R.string.save_files, batch.files.size)
+                    diag.finish("ok")
                     notifyDone("$who · $detail", error = false)
                 } catch (ex: InstagramClient.ApiException) {
-                    notifyDone(mapError(ex), error = true)
-                } catch (_: Exception) {
-                    notifyDone(getString(R.string.save_fail_net), error = true)
+                    failWith(mapError(ex))
+                } catch (ex: Exception) {
+                    failWith(unexpectedAt(diag.stage, ex))
                 }
             },
             onFailure = { err ->
@@ -108,8 +124,8 @@ class QuickSaveService : Service() {
                     val ok = runCatching { saveStreamQuiet(job.stream) }.isSuccess
                     if (ok) return
                 }
-                if (err is InstagramClient.ApiException) notifyDone(mapError(err), error = true)
-                else notifyDone(getString(R.string.save_fail_net), error = true)
+                if (err is InstagramClient.ApiException) failWith(mapError(err))
+                else failWith(unexpectedAt(diag.stage, err))
             },
         )
     }
@@ -128,6 +144,7 @@ class QuickSaveService : Service() {
     }
 
     private fun saveStreamQuiet(raw: String) {
+        diag.begin(DownloadDiagnostics.STEP_STORE)
         val uri = Uri.parse(raw)
         val resolver = contentResolver
         val mime = resolver.getType(uri) ?: "video/mp4"
@@ -147,9 +164,11 @@ class QuickSaveService : Service() {
     }
 
     private fun writeRemote(file: InstagramClient.SaveFile) {
-        val stream = instagram.pullFile(file.url)
+        diag.begin(DownloadDiagnostics.STEP_CDN)
+        val stream = instagram.pullFile(file.url, diag)
         try {
             val body = stream.body ?: error("empty")
+            diag.begin(DownloadDiagnostics.STEP_STORE)
             storeBytes(body.byteStream(), file.name, file.mime)
         } finally {
             stream.close()
@@ -175,13 +194,14 @@ class QuickSaveService : Service() {
                 storeBytes(input, name, mime)
             } ?: error("in")
             notifyDone(name, error = false)
-        } catch (_: Exception) {
-            notifyDone(getString(R.string.save_fail_net), error = true)
+        } catch (ex: Exception) {
+            failWith(unexpectedAt(DownloadDiagnostics.STEP_STORE, ex))
         }
     }
 
     private fun storeBytes(input: java.io.InputStream, name: String, mime: String) {
         val limited = LimitedInput(input, 120L * 1024 * 1024)
+        try {
         if (Build.VERSION.SDK_INT >= 29) {
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, name)
@@ -204,10 +224,19 @@ class QuickSaveService : Service() {
             dir.mkdirs()
             File(dir, name).outputStream().use { limited.copyTo(it) }
         }
+        } catch (err: Exception) {
+            if (diag.storeDetail.isBlank()) {
+                diag.storeDetail = (err.message ?: err.javaClass.simpleName).take(48)
+            }
+            throw err
+        } finally {
+            diag.bytes = limited.copied
+        }
     }
 
     private class LimitedInput(private val inner: java.io.InputStream, private val max: Long) : java.io.InputStream() {
         private var seen = 0L
+        val copied: Long get() = seen
         override fun read(): Int {
             val value = inner.read()
             if (value >= 0) account(1)
@@ -230,7 +259,44 @@ class QuickSaveService : Service() {
             "url" -> getString(R.string.save_fail_url)
             "rate" -> getString(R.string.save_fail_rate)
             "missing", "empty", "blocked", "login" -> getString(R.string.save_fail_missing)
+            "network" -> getString(R.string.save_fail_resolve, diag.listnrDetail.ifBlank { "network" })
+            "upstream" -> getString(R.string.save_fail_upstream, ex.status.toString())
+            "cdn", "host" -> getString(R.string.save_fail_cdn, diag.cdnDetail.ifBlank { ex.status.toString() })
+            "store", "io" -> getString(R.string.save_fail_store, diag.storeDetail.ifBlank { "write" })
+            "token", "expired" -> getString(R.string.save_fail_unexpected, ex.code)
+            // Only codes with no known meaning ever reach the generic line.
             else -> getString(R.string.save_fail_net)
+        }
+    }
+
+    /** Names the step and the real cause for an unexpected failure. */
+    private fun unexpectedAt(stage: String, ex: Throwable): String {
+        val detail = (ex.message ?: ex.javaClass.simpleName).take(48)
+        return when (stage) {
+            DownloadDiagnostics.STEP_LISTNR -> getString(R.string.save_fail_resolve, detail)
+            DownloadDiagnostics.STEP_CDN -> getString(R.string.save_fail_cdn, detail)
+            DownloadDiagnostics.STEP_STORE -> getString(R.string.save_fail_store, detail)
+            else -> getString(R.string.save_fail_unexpected, stage)
+        }
+    }
+
+    /** Marks the current step as the failed one, then notifies. */
+    private fun failWith(text: String) {
+        diag.finish("fail:${diag.stage}")
+        notifyDone(text, error = true)
+    }
+
+    /** Persists the one-line summary and the shareable last-run report. */
+    private fun persist(run: DownloadDiagnostics) {
+        runCatching {
+            getSharedPreferences(DownloadDiagnostics.PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(DownloadDiagnostics.KEY, run.summary())
+                .apply()
+        }
+        runCatching {
+            val dir = getExternalFilesDir(null) ?: return@runCatching
+            File(dir, DownloadDiagnostics.FILE_NAME).writeText(run.report())
         }
     }
 
@@ -308,6 +374,19 @@ class QuickSaveService : Service() {
         }
 
         fun tidyIgUrl(raw: String): String = IgLinks.fromText(raw).ifBlank { IgLinks.tidy(raw) }
+
+        /** One-line summary of the last save attempt; blank when none yet. */
+        fun lastRunSummary(context: Context): String = runCatching {
+            context.getSharedPreferences(DownloadDiagnostics.PREFS, Context.MODE_PRIVATE)
+                .getString(DownloadDiagnostics.KEY, null)
+                .orEmpty()
+        }.getOrDefault("")
+
+        /** The shareable last-run report, only once a save actually ran. */
+        fun lastRunFile(context: Context): File? {
+            val dir = runCatching { context.getExternalFilesDir(null) }.getOrNull() ?: return null
+            return File(dir, DownloadDiagnostics.FILE_NAME).takeIf { it.isFile && it.length() > 0L }
+        }
 
         fun notifyNeedLink(context: Context) {
             ensureChannel(context)

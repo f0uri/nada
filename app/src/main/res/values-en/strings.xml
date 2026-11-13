@@ -25,6 +25,12 @@
     <string name="save_fail_url">This is not a valid Instagram link</string>
     <string name="save_fail_missing">The post is unavailable, or the account is private</string>
     <string name="save_fail_rate">Slowed down a little. Try again in a moment</string>
+    <string name="save_fail_resolve">Couldn\'t reach the link server: %1$s</string>
+    <string name="save_fail_upstream">Couldn\'t fetch the link from the server (HTTP %1$s)</string>
+    <string name="save_fail_cdn">Couldn\'t download the file from Instagram: %1$s</string>
+    <string name="save_fail_store">Couldn\'t save the file to Downloads: %1$s</string>
+    <string name="save_fail_unexpected">Unexpected error at step: %1$s</string>
+    <string name="download_share_debug">Share last download diagnostics</string>
     <string name="save_fail_net">Couldn\'t connect. Check your network</string>
     <string name="battery_channel">Running in the background</string>
     <string name="update_title">IG SAVE update</string>

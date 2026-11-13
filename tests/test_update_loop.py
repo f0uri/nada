@@ -261,13 +261,13 @@ def test_protected_files_untouched():
         "app/src/main/java/com/nada/app/NadaServer.kt",
         "app/src/main/java/com/nada/app/PageMediaSniffer.kt",
         "app/src/main/java/com/nada/app/BannerAds.kt",
-        "app/src/main/java/com/nada/app/ListnrService.kt",
-        "app/src/main/java/com/nada/app/InstagramClient.kt",
         # 1.60 owns the bubble files, so they are no longer protected here.
         "app/src/main/java/com/nada/app/BubbleService.kt",
-        "app/src/main/java/com/nada/app/QuickSaveService.kt",
+        # 1.68 owns the download core: failures name their step and every
+        # terminal path records shareable evidence. Listnr stays the only
+        # resolver — no fallback source was added.
         # 1.63 owns the trilingual WebView work, so app.js / reelwatch.js are
-        # no longer protected here (the download core above still is).
+        # no longer protected here either.
         "app/src/main/assets/styles.css",
         "signing/nada.jks",
         "server.py",
@@ -275,13 +275,121 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_67():
+def test_version_bumped_to_68():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 67" in gradle
-    assert 'versionName = "1.67"' in gradle
+    assert "versionCode = 68" in gradle
+    assert 'versionName = "1.68"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.67"
-    assert manifest["versionCode"] == 67
+    assert manifest["version"] == "1.68"
+    assert manifest["versionCode"] == 68
+
+
+# ---------------------------------------------------------------------------
+# 1.68: every download failure names the step that actually failed
+# ---------------------------------------------------------------------------
+
+def test_download_failure_names_its_step():
+    """listnr / cdn / store each carry their own message; no path hides behind
+    the generic save_fail_net line (that line survives only for unknown codes).
+    """
+    src = read(JAVA / "QuickSaveService.kt")
+    map_error = src.split("private fun mapError(")[1].split("private fun unexpectedAt(")[0]
+    assert '"network" -> getString(R.string.save_fail_resolve' in map_error
+    assert '"upstream" -> getString(R.string.save_fail_upstream' in map_error
+    assert '"cdn", "host" -> getString(R.string.save_fail_cdn' in map_error
+    assert '"store", "io" -> getString(R.string.save_fail_store' in map_error
+    # Exactly one generic line remains: the unknown-code else branch.
+    assert src.count("R.string.save_fail_net") == 1
+    drain = src.split("private fun drain()")[1].split("private fun runSave(")[0]
+    assert "R.string.save_fail_net" not in drain
+    assert "unexpectedAt(diag.stage, ex)" in drain
+    assert "persist(diag)" in drain
+    run_save = src.split("private fun runSave(")[1].split("private fun shouldSaveStream(")[0]
+    assert "R.string.save_fail_net" not in run_save
+    assert "failWith(" in run_save
+    assert "diag.begin(DownloadDiagnostics.STEP_LISTNR)" in run_save
+    write_remote = src.split("private fun writeRemote(")[1].split("private fun saveStream(")[0]
+    assert "STEP_CDN" in write_remote and "STEP_STORE" in write_remote
+    unexpected = src.split("private fun unexpectedAt(")[1].split("private fun failWith(")[0]
+    for stage in ("STEP_LISTNR", "STEP_CDN", "STEP_STORE"):
+        assert stage in unexpected
+    # The store step records the real write cause and the byte count.
+    store = src.split("private fun storeBytes(")[1].split("private fun mapError(")[0]
+    assert "diag.storeDetail" in store
+    assert "diag.bytes = limited.copied" in store
+
+
+def test_listnr_resolve_retries_transport_failures_once():
+    """One slow handshake must not kill every save: transport failures retry
+    once with backoff and a 20s budget; HTTP errors keep their real code.
+    """
+    src = read(JAVA / "ListnrService.kt")
+    assert "const val MAX_ATTEMPTS = 2" in src
+    assert "attempt < MAX_ATTEMPTS" in src
+    assert "RETRY_BACKOFF_MS" in src
+    assert "DownloadDiagnostics.classify(ex)" in src
+    assert 'ApiException(502, "network")' in src
+    assert "listnr HTTP ${response.code}" in src
+    assert "CALL_TIMEOUT_SECONDS = 20L" in src
+    diag = read(JAVA / "DownloadDiagnostics.kt")
+    for kind in ('"dns"', '"tls"', '"connect"', '"timeout"', '"read"', '"io"'):
+        assert kind in diag
+    # Still the only resolver: no fallback endpoint was introduced.
+    assert src.count("ENDPOINT") >= 1
+    assert "bff.listnr.tech" in src
+
+
+def test_cdn_pull_retries_and_names_its_cause():
+    src = read(JAVA / "InstagramClient.kt")
+    pull = src.split("fun pullFile(")[1].split("fun warmSession(")[0]
+    assert "MAX_CDN_ATTEMPTS" in pull
+    assert "DownloadDiagnostics.classify(ex)" in pull
+    assert "diag.cdnHost" in pull
+    assert "diag.cdnDetail" in pull
+    assert "cdn HTTP $code" in pull
+    # A resolved URL that fails the host allowlist is named, not generic.
+    resolve = src.split("fun resolve(rawUrl: String, diag")[1].split("private fun fetchMediaItem(")[0]
+    assert 'ApiException(400, "host")' in resolve
+    # The recorder never holds a signed CDN URL.
+    recorder = read(JAVA / "DownloadDiagnostics.kt")
+    assert "remoteUrl" not in recorder
+    assert 'const val STEP_LISTNR = "listnr"' in recorder
+    assert 'const val STEP_CDN = "cdn"' in recorder
+    assert 'const val STEP_STORE = "store"' in recorder
+
+
+def test_download_diagnostic_persists_and_is_shareable():
+    src = read(JAVA / "QuickSaveService.kt")
+    assert "persist(diag)" in src
+    assert "DownloadDiagnostics.FILE_NAME" in src
+    assert "fun lastRunSummary(context: Context)" in src
+    assert "fun lastRunFile(context: Context)" in src
+    main = read(JAVA / "MainActivity.kt")
+    assert "fun lastDownloadRun(): String" in main
+    assert "fun shareDownloadRun()" in main
+    assert "shareLastDownloadRun()" in main
+    paths = read(APP / "res" / "xml" / "file_paths.xml")
+    assert '<external-files-path name="download-debug" path="." />' in paths
+    for values in ("values", "values-en", "values-fr"):
+        text = read(APP / "res" / values / "strings.xml")
+        for key in ("save_fail_resolve", "save_fail_upstream", "save_fail_cdn",
+                    "save_fail_store", "save_fail_unexpected", "download_share_debug"):
+            assert f'name="{key}"' in text, (values, key)
+    html = read(APP / "assets" / "index.html")
+    assert html.count('id="downloadDebug"') == 1
+    assert '<script src="/downloaddebug.js"></script>' in html
+    assert read(APP / "assets" / "index.html") == read(ROOT / "static" / "index.html")
+    js = read(APP / "assets" / "downloaddebug.js")
+    assert js == read(ROOT / "static" / "downloaddebug.js")
+    assert "lastDownloadRun" in js and "shareDownloadRun" in js
+    diag = read(JAVA / "DownloadDiagnostics.kt")
+    assert 'FILE_NAME = "download-last-run.txt"' in diag
+    assert "MAX_NOTES" in diag and "MAX_STEPS" in diag
+    # The About row renders the same one-line summary the service persisted.
+    persist = src.split("private fun persist(")[1]
+    assert "run.summary()" in persist
+    assert "run.report()" in persist
+    assert "DownloadDiagnostics.FILE_NAME" in persist
 
 
 def test_resume_pending_installs_without_permission():

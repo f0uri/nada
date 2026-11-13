@@ -1,6 +1,6 @@
 {
-  "version": "1.67",
-  "versionCode": 67,
+  "version": "1.68",
+  "versionCode": 68,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.67: fixes the bubble failure toast so every give-up path reports its real stage, and records a shareable last-run diagnostic (searched windows, Copy scores from both passes, filtered Copy labels, click result, and scan timing). Tap matching and the 7-second budget are unchanged pending on-device evidence."
+  "changelog": "IG SAVE 1.68: every download failure now names the step that failed (listnr / CDN / store) with the real cause instead of a generic network message, transient listnr and CDN failures retry once, and a shareable last-download diagnostic records the step, HTTP status, host, byte count and timing. Listnr remains the only resolver."
 }
