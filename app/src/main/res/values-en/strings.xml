@@ -48,6 +48,9 @@
     <string name="update_err_file">The downloaded file is invalid</string>
     <string name="update_err_version">The file version is not newer than the current one</string>
     <string name="reel_watch_need_link">Copy the reel link first</string>
+    <string name="reel_watch_no_copy">Could not find the Copy link button in the sheet</string>
+    <string name="reel_watch_copy_click_failed">Found Copy link but could not tap it</string>
+    <string name="reel_watch_no_share">Could not find the Share button</string>
     <string name="reel_watch_service_label">IG SAVE · Download the reel you\'re watching</string>
     <string name="reel_watch_service_summary">One tap on the floating button downloads the open reel in Instagram.</string>
     <string name="reel_watch_service_description">Works only inside Instagram and only after you tap the floating button: it opens the share menu, taps Copy link, then downloads the reel. It doesn\'t read text, passwords, or the content of any other app or screen, and it doesn\'t run in the background without your tap. Stop it anytime from this screen.</string>
