@@ -50,6 +50,7 @@
     <string name="reel_watch_need_link">Copy the reel link first</string>
     <string name="reel_watch_no_copy">Could not find the Copy link button in the sheet</string>
     <string name="reel_watch_copy_click_failed">Found Copy link but could not tap it</string>
+    <string name="reel_watch_share_debug">Share bubble diagnostics</string>
     <string name="reel_watch_no_share">Could not find the Share button</string>
     <string name="reel_watch_service_label">IG SAVE · Download the reel you\'re watching</string>
     <string name="reel_watch_service_summary">One tap on the floating button downloads the open reel in Instagram.</string>

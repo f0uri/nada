@@ -12,6 +12,7 @@
     disabled: "غير مفعّل. فعّل «IG SAVE» في إمكانية الوصول.",
     restricted: "إذا كان المفتاح رمادياً: معلومات التطبيق ← القائمة ⋮ ← السماح بالإعدادات المقيّدة.",
     needApp: "هذه الميزة تعمل داخل تطبيق أندرويد فقط.",
+    debugShare: "اضغط لمشاركة تشخيص آخر ضغطة",
   };
   const en = {
     title: "One-tap reel download",
@@ -23,6 +24,7 @@
     disabled: "Off. Enable “IG SAVE” in Accessibility settings.",
     restricted: "If the switch is greyed out: App info → ⋮ menu → Allow restricted settings.",
     needApp: "This feature only works in the Android app.",
+    debugShare: "Tap to share the last tap diagnostics",
   };
   const fr = {
     title: "Télécharger le reel en un appui",
@@ -34,6 +36,7 @@
     disabled: "Désactivé. Activez « IG SAVE » dans les paramètres d'accessibilité.",
     restricted: "Si l'interrupteur est grisé : Infos sur l'appli → menu ⋮ → Autoriser les paramètres restreints.",
     needApp: "Cette fonction ne marche que dans l'application Android.",
+    debugShare: "Appuyez pour partager le diagnostic du dernier appui",
   };
   function bridge() {
     return window.NadaBridge && typeof window.NadaBridge.isReelWatchOn === "function" ? window.NadaBridge : null;
@@ -46,6 +49,16 @@
   function strings() {
     const lang = localStorage.getItem("nada-lang") || document.documentElement.lang || "ar";
     return lang.startsWith("fr") ? fr : lang.startsWith("en") ? en : ar;
+  }
+  function renderDebug() {
+    const row = document.getElementById("reelWatchDebug");
+    if (!row) return;
+    const b = bridge();
+    let line = "";
+    try { line = b && typeof b.lastBubbleRun === "function" ? String(b.lastBubbleRun() || "") : ""; } catch (e) { /* optional debug row */ }
+    row.hidden = !line;
+    row.textContent = line;
+    row.title = line ? strings().debugShare : "";
   }
   function render() {
     const t = strings();
@@ -63,6 +76,7 @@
       state.textContent = (on ? t.enabled : t.disabled) + (b && !on ? " " + t.restricted : "");
       state.hidden = false;
     }
+    renderDebug();
   }
   btn.onclick = () => {
     const b = bridge();
@@ -79,6 +93,17 @@
     try { b.setReelWatch(next); } catch (e) { /* keep the card usable */ }
     setTimeout(render, 400);
   };
+  const debugRow = document.getElementById("reelWatchDebug");
+  if (debugRow) {
+    debugRow.setAttribute("role", "button");
+    debugRow.tabIndex = 0;
+    const share = () => {
+      const b = bridge();
+      try { if (b && typeof b.shareBubbleRun === "function") b.shareBubbleRun(); } catch (e) { /* keep existing UI usable */ }
+    };
+    debugRow.onclick = share;
+    debugRow.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); share(); } };
+  }
   window.nadaReelWatch = () => render();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) render(); });
   window.addEventListener("focus", render);

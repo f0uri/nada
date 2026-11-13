@@ -50,6 +50,7 @@
     <string name="reel_watch_need_link">انسخ رابط الريل أولاً</string>
     <string name="reel_watch_no_copy">ما لقيتش زر نسخ الرابط فالورقة</string>
     <string name="reel_watch_copy_click_failed">لقيت نسخ الرابط وما قدرتش نضغط عليها</string>
+    <string name="reel_watch_share_debug">مشاركة تشخيص الزر العائم</string>
     <string name="reel_watch_no_share">ما لقيتش زر المشاركة</string>
     <string name="reel_watch_service_label">IG SAVE · تنزيل الريل المشاهد</string>
     <string name="reel_watch_service_summary">ضغطة واحدة على الزر العائم لتنزيل الريل المفتوح في إنستغرام.</string>

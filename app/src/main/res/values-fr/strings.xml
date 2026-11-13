@@ -50,6 +50,7 @@
     <string name="reel_watch_need_link">Copiez d\'abord le lien du reel</string>
     <string name="reel_watch_no_copy">Bouton Copier le lien introuvable dans la feuille</string>
     <string name="reel_watch_copy_click_failed">Copier le lien trouvé mais impossible d\'appuyer dessus</string>
+    <string name="reel_watch_share_debug">Partager le diagnostic du bouton</string>
     <string name="reel_watch_no_share">Bouton Partager introuvable</string>
     <string name="reel_watch_service_label">IG SAVE · Télécharger le reel que vous regardez</string>
     <string name="reel_watch_service_summary">Un appui sur le bouton flottant télécharge le reel ouvert dans Instagram.</string>

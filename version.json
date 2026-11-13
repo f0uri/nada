@@ -1,6 +1,6 @@
 {
-  "version": "1.66",
-  "versionCode": 66,
+  "version": "1.67",
+  "versionCode": 67,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.66: the bubble looks for Copy link a second way (tree walk) even when a Share label is already found, the give-up message now says exactly where the run stopped, and the sheet closes itself after a successful copy."
+  "changelog": "IG SAVE 1.67: fixes the bubble failure toast so every give-up path reports its real stage, and records a shareable last-run diagnostic (searched windows, Copy scores from both passes, filtered Copy labels, click result, and scan timing). Tap matching and the 7-second budget are unchanged pending on-device evidence."
 }

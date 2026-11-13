@@ -113,6 +113,21 @@ object ShareNodes {
         return 0
     }
 
+    /**
+     * DIAGNOSTIC ONLY — never used to choose a node to tap.
+     *
+     * True when a label merely looks copy-related (contains "نسخ" / "copy" /
+     * "copier"), even if it scores 0 or was filtered out as not visible. This
+     * is what tells apart "the label is not in the tree at all" from "the
+     * label is there but our filter or scorer dropped it".
+     */
+    fun looksLikeCopyLabel(text: String?, description: String?): Boolean {
+        val both = listOf(normalize(text), normalize(description))
+        return both.any { label -> label.isNotEmpty() && COPY_HINTS.any { label.contains(it) } }
+    }
+
+    private val COPY_HINTS = listOf("نسخ", "copy", "copier")
+
     /** 4 = exact label, 3 = resource id, 2 = prefix, 1 = bare "Copy", 0 = no match. */
     fun copyScore(text: String?, description: String?, viewId: String?): Int {
         val both = listOf(normalize(text), normalize(description)).filter { it.isNotEmpty() }
