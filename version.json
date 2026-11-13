@@ -1,6 +1,6 @@
 {
-  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.72: the in-app page now fits the screen — the About page no longer looks zoomed in with content cut off on the sides.",
   "version": "1.72",
-  "versionCode": 72
+  "versionCode": 72,
+  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
+  "changelog": "IG SAVE 1.72: the in-app page now fits the screen \u2014 the About page no longer looks zoomed in with content cut off on the sides."
 }
