@@ -1,6 +1,6 @@
 {
-  "version": "1.68",
-  "versionCode": 68,
+  "version": "1.69",
+  "versionCode": 69,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.68: every download failure now names the step that failed (listnr / CDN / store) with the real cause instead of a generic network message, transient listnr and CDN failures retry once, and a shareable last-download diagnostic records the step, HTTP status, host, byte count and timing. Listnr remains the only resolver."
+  "changelog": "IG SAVE 1.69: the bubble Copy tap now tries every clickable ancestor up the chain until one actually acts — the first row ancestor that swallowed the tap no longer fails the run, and the diagnostics trail records each attempt. Node matching, tap safety and the 7-second budget are unchanged."
 }

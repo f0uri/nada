@@ -192,6 +192,41 @@ def test_copy_click_climbs_deeper_sheets():
     assert "private const val CLICK_PARENT_HOPS = 8" in src
 
 
+def test_copy_click_tries_every_clickable_ancestor():
+    """1.69 phone evidence: the Copy node is found, but the first clickable
+    ancestor swallows the tap (stage copy_click). The climb must keep trying
+    higher ancestors and return true on the first that actually acts — a
+    false result may no longer end the walk early.
+    """
+    src = read(JAVA / "ReelWatchService.kt")
+    click = src.split("private fun click(")[1].split("private fun readClipboard")[0]
+    # A failed performAction climbs higher; only success returns true.
+    assert "return result" not in click
+    assert "if (result) {" in click
+    assert 'diag.note("click ok at hop $hops")' in click
+    # The bounded chain, the node-itself-first order and the scope check
+    # are unchanged, and out-of-scope packages still abort the whole climb.
+    assert "hops < CLICK_PARENT_HOPS" in click
+    assert "onSelf = hops == 0" in click
+    assert "private const val CLICK_PARENT_HOPS = 8" in src
+    assert "if (!inScope) return false" in click
+    assert 'blockedClick("out_of_scope")' in click
+    # No clickable ancestor within the 8-hop chain still returns false,
+    # with a note that no hop acted (distinct from a scope rejection).
+    assert 'diag.note("click failed: no hop acted")' in click
+    assert 'blockedClick("no_clickable_ancestor")' in click
+    assert click.rstrip().endswith("return false\n    }") or "return false" in click
+    # One performAction call site; one Share and one Copy call site per run.
+    assert src.count("performAction(") == 1
+    assert src.count("if (!click(share.node))") == 1
+    assert src.count("if (!click(copy.node, allowResolver = true))") == 1
+    # Every attempt is recorded in the ordered diagnostics trail.
+    diag = read(JAVA / "BubbleDiagnostics.kt")
+    assert "clickTrail" in diag
+    assert "MAX_CLICK_HOPS" in diag
+    assert '"$clickOn=$result"' in diag
+
+
 def _span(src: str, start_marker: str) -> str:
     i = src.index(start_marker)
     j = src.index("{", i)
@@ -551,6 +586,19 @@ fun main() {
         for (i in 1..50) h.begin("s$i")
         h.report().lines().count { it.startsWith("step: ") }
     }, 24)
+    // --- Click trail: every ancestor attempt is recorded (1.69) -----------
+    val c = BubbleDiagnostics()
+    c.beginClick(copy = true)
+    c.observeClick(onSelf = false, hops = 1, result = false)
+    c.observeClick(onSelf = false, hops = 2, result = false)
+    c.observeClick(onSelf = false, hops = 3, result = true)
+    check("trail keeps every hop", c.report().contains("clickTrail: ancestor1=false ancestor2=false ancestor3=true"), true)
+    check("trail last attempt is the result", c.clickResult, "true")
+    check("trail clickOn is last hop", c.clickOn, "ancestor3")
+    for (i in 4..20) c.observeClick(onSelf = false, hops = i, result = false)
+    val trailLine = c.report().lines().first { it.startsWith("clickTrail:") }
+    check("trail bounded", trailLine.split(" ").size - 1, 8)
+    check("trail first hop kept", trailLine.contains("ancestor1=false"), true)
     println("ALL PASS")
 }
 """
