@@ -425,11 +425,19 @@ class ReelWatchService : AccessibilityService() {
                     active.performAction(AccessibilityNodeInfo.ACTION_CLICK)
                 }.getOrDefault(false)
                 diag.observeClick(onSelf = hops == 0, hops = hops, result = result)
-                return result
+                // 1.67 phone evidence: the Copy node is found, but the first
+                // clickable row ancestor can swallow the tap. Keep climbing —
+                // a higher ancestor may act — and only give up when the
+                // bounded chain is exhausted.
+                if (result) {
+                    diag.note("click ok at hop $hops")
+                    return true
+                }
             }
             current = runCatching { active.parent }.getOrNull()
             hops++
         }
+        diag.note("click failed: no hop acted")
         diag.blockedClick("no_clickable_ancestor")
         return false
     }

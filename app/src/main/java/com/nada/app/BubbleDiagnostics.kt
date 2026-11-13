@@ -56,6 +56,7 @@ class BubbleDiagnostics {
     private val history = ArrayList<Scan>()
     private val labels = ArrayList<String>()
     private val notes = ArrayList<String>()
+    private val clickTrail = ArrayList<String>()
     private var current: Scan? = null
 
     fun beginScan(number: Int, phase: Int, atMs: Long) {
@@ -133,6 +134,9 @@ class BubbleDiagnostics {
     fun observeClick(onSelf: Boolean, hops: Int, result: Boolean) {
         clickOn = if (onSelf) "self" else "ancestor$hops"
         clickResult = result.toString()
+        // 1.69: the climb tries every clickable ancestor — keep the ordered
+        // trail of attempts so a swallowed first tap is visible in the report.
+        if (clickTrail.size < MAX_CLICK_HOPS) clickTrail += "$clickOn=$result"
     }
 
     fun note(text: String) {
@@ -155,6 +159,7 @@ class BubbleDiagnostics {
         append(" shareClickTried=").append(shareClickTried)
         append(" selfClickable=").append(selfClickable)
         append(" clickOn=").append(clickOn).append('\n')
+        append("clickTrail: ").append(clickTrail.joinToString(" ")).append('\n')
         append("windowsEmpty=").append(windowsEmpty)
         append(" activeRootOnly=").append(activeRootOnly)
         append(" queryMs=").append(queryMs)
@@ -173,6 +178,9 @@ class BubbleDiagnostics {
         private const val MAX_SCANS = 60
         private const val MAX_LABELS = 8
         private const val MAX_NOTES = 12
+
+        /** Mirrors CLICK_PARENT_HOPS: self plus the bounded ancestor chain. */
+        private const val MAX_CLICK_HOPS = 8
 
         /** The terminal fallback used by every clipboard/give-up path. */
         fun stageFor(phase: Int, copyClickFailed: Boolean): String = when {
