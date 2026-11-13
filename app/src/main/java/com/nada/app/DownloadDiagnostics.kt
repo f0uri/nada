@@ -33,6 +33,9 @@ class DownloadDiagnostics {
     var storeDetail: String = ""
     var bytes: Long = 0L
 
+    /** True when the video came from the quicksave fallback, not listnr. */
+    var viaQuickSave: Boolean = false
+
     val steps = ArrayList<String>()
     val notes = ArrayList<String>()
 
@@ -63,6 +66,7 @@ class DownloadDiagnostics {
         if (cdnDetail.isNotBlank()) append(' ').append(cdnDetail)
         append(" bytes=").append(bytes)
         append(" ms=").append(elapsedMs)
+        append(" via=").append(if (viaQuickSave) "quicksave" else "listnr")
     }
 
     /** Multi-line report for download-last-run.txt (shareable). */
@@ -72,6 +76,7 @@ class DownloadDiagnostics {
         append("stage=").append(stage).append('\n')
         append("outcome=").append(outcome.ifBlank { "running" }).append('\n')
         append("listnr=").append(listnrDetail.ifBlank { "-" }).append('\n')
+        append("via=").append(if (viaQuickSave) "quicksave" else "listnr").append('\n')
         append("cdn=").append(cdnHost.ifBlank { "-" })
         if (cdnDetail.isNotBlank()) append(' ').append(cdnDetail)
         append('\n')
