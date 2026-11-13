@@ -824,10 +824,11 @@ html[dir="ltr"] .circle svg { transform: scaleX(-1); }
 .actions { display: grid; gap: 8px; }
 .split { display: flex; gap: 8px; }
 
-.cards { display: grid; gap: 10px; }
-.card { border-radius: 22px; padding: 16px 16px 15px; }
-.card h3 { font-size: 16px; margin-bottom: 6px; }
-.card p { color: var(--muted); font-size: 14px; line-height: 1.65; }
+.cards { display: grid; gap: 10px; min-width: 0; width: 100%; }
+.card { min-width: 0; max-width: 100%; border-radius: 22px; padding: 16px 16px 15px; }
+.card h3 { min-width: 0; max-width: 100%; font-size: 16px; margin-bottom: 6px; overflow-wrap: anywhere; }
+.card p { min-width: 0; max-width: 100%; color: var(--muted); font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; word-break: break-word; }
+.card p.fine[dir="ltr"] { white-space: normal; overflow-wrap: anywhere; word-break: break-word; text-align: left; }
 
 .lib-empty { border-radius: 22px; padding: 22px 18px; color: var(--muted); line-height: 1.7; }
 .lib-grid {

@@ -22,8 +22,11 @@ class DownloadDiagnostics {
     var outcome: String = ""
     var elapsedMs: Long = -1L
 
-    /** e.g. "HTTP 200", "timeout ×2" — set by ListnrService. */
+    /** e.g. "HTTP 400: No video found in response" — set by ListnrService. */
     var listnrDetail: String = ""
+
+    /** Bounded outcome of the quicksave fallback; never contains a URL. */
+    var quickSaveDetail: String = ""
 
     /** CDN host only (no path, no query). */
     var cdnHost: String = ""
@@ -62,6 +65,7 @@ class DownloadDiagnostics {
         append("stage=").append(stage)
         append(" outcome=").append(outcome.ifBlank { "running" })
         append(" listnr=").append(listnrDetail.ifBlank { "-" })
+        append(" quicksave=").append(quickSaveDetail.ifBlank { "-" })
         append(" cdn=").append(cdnHost.ifBlank { "-" })
         if (cdnDetail.isNotBlank()) append(' ').append(cdnDetail)
         append(" bytes=").append(bytes)
@@ -76,6 +80,7 @@ class DownloadDiagnostics {
         append("stage=").append(stage).append('\n')
         append("outcome=").append(outcome.ifBlank { "running" }).append('\n')
         append("listnr=").append(listnrDetail.ifBlank { "-" }).append('\n')
+        append("quicksave=").append(quickSaveDetail.ifBlank { "-" }).append('\n')
         append("via=").append(if (viaQuickSave) "quicksave" else "listnr").append('\n')
         append("cdn=").append(cdnHost.ifBlank { "-" })
         if (cdnDetail.isNotBlank()) append(' ').append(cdnDetail)

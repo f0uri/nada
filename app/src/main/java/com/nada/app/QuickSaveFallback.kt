@@ -33,6 +33,15 @@ class QuickSaveFallback(
         try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
+                    val message = runCatching {
+                        JSONObject(response.body?.string().orEmpty())
+                            .optString("message").trim()
+                    }.getOrDefault("")
+                        .replace(Regex("""(?i)https?://\S+"""), "[url]")
+                        .filterNot { it.isISOControl() }
+                        .take(80)
+                    diag?.quickSaveDetail = "HTTP ${response.code}" +
+                        if (message.isNotBlank()) ": $message" else ""
                     diag?.note("quicksave HTTP ${response.code}")
                     throw when (response.code) {
                         404 -> InstagramClient.ApiException(404, "missing")
@@ -43,10 +52,12 @@ class QuickSaveFallback(
                 val json = try {
                     JSONObject(response.body?.string().orEmpty())
                 } catch (_: Exception) {
+                    diag?.quickSaveDetail = "bad json"
                     diag?.note("quicksave bad json")
                     throw InstagramClient.ApiException(502, "upstream")
                 }
                 val formats = json.optJSONArray("formats") ?: run {
+                    diag?.quickSaveDetail = "missing formats"
                     diag?.note("quicksave missing formats")
                     throw InstagramClient.ApiException(404, "empty")
                 }
@@ -68,20 +79,27 @@ class QuickSaveFallback(
                     }
                 }
                 if (bestUrl.isBlank()) {
+                    diag?.quickSaveDetail = "no video format"
                     diag?.note("quicksave no video format")
                     throw InstagramClient.ApiException(404, "empty")
                 }
                 val thumb = json.optString("thumbnail").trim().replace("&amp;", "&")
+                diag?.quickSaveDetail = "HTTP ${response.code}, height=$bestHeight"
                 diag?.note("quicksave ok height=$bestHeight")
                 return ListnrService.Video(bestUrl, thumb)
             }
         } catch (ex: InstagramClient.ApiException) {
+            if (diag?.quickSaveDetail.isNullOrBlank()) {
+                diag?.quickSaveDetail = "failed (${ex.code})"
+            }
             throw ex
         } catch (ex: IOException) {
             val kind = DownloadDiagnostics.classify(ex)
+            diag?.quickSaveDetail = kind
             diag?.note("quicksave $kind")
             throw InstagramClient.ApiException(502, "network")
         } catch (ex: Exception) {
+            diag?.quickSaveDetail = "error: ${ex.javaClass.simpleName}"
             diag?.note("quicksave error: ${ex.javaClass.simpleName}")
             throw InstagramClient.ApiException(502, "upstream")
         }
