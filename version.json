@@ -1,1 +1,6 @@
-{"apkUrl":"https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk","changelog":"IG SAVE 1.65: the bubble now presses Copy link by itself. The share sheet is a dialog window and the service was only searching application windows, so 'نسخ الرابط' sat on screen untouched — the search now covers every window of Instagram and the system share sheet, and a Copy tap is no longer refused when a node reports no package.","version":"1.65","versionCode":65}
+{
+  "version": "1.65",
+  "versionCode": 65,
+  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
+  "changelog": "IG SAVE 1.65: the bubble now presses Copy link by itself. The share sheet is a dialog window and the service was only searching application windows, so '\u0646\u0633\u062e \u0627\u0644\u0631\u0627\u0628\u0637' sat on screen untouched \u2014 the search now covers every window of Instagram and the system share sheet, and a Copy tap is no longer refused when a node reports no package."
+}
