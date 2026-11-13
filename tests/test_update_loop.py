@@ -275,13 +275,13 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_65():
+def test_version_bumped_to_66():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 65" in gradle
-    assert 'versionName = "1.65"' in gradle
+    assert "versionCode = 66" in gradle
+    assert 'versionName = "1.66"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.65"
-    assert manifest["versionCode"] == 65
+    assert manifest["version"] == "1.66"
+    assert manifest["versionCode"] == 66
 
 
 def test_resume_pending_installs_without_permission():
