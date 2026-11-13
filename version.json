@@ -1,6 +1,6 @@
 {
-  "version": "1.74",
-  "versionCode": 74,
+  "version": "1.75",
+  "versionCode": 75,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.74: one-tap reel download now keeps searching for Copy link for 10 seconds after opening Instagram's share sheet. The About page shows clean share-diagnostic labels instead of raw diagnostic tokens."
+  "changelog": "IG SAVE 1.75: the bubble accepts a reel URL only after Copy causes a fresh clipboard write or Android reports a fresh clipboard timestamp. The share sheet stays open until that fresh URL is confirmed, preventing an old reel link from being downloaded when Copy fails."
 }

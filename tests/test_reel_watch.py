@@ -288,20 +288,24 @@ def test_copy_failure_reports_its_stage():
     """
     src = read(JAVA / "ReelWatchService.kt")
     for marker in ("failStage", "copyClickFailed", "reel_watch_no_copy",
-                   "reel_watch_copy_click_failed", "reel_watch_no_share"):
+                   "reel_watch_copy_click_failed", "reel_watch_copy_stale", "reel_watch_no_share"):
         assert marker in src, marker
     for values in ("values", "values-en", "values-fr"):
         strings = read(APP / "res" / values / "strings.xml")
         for name in ("reel_watch_no_copy", "reel_watch_copy_click_failed",
-                     "reel_watch_no_share"):
+                     "reel_watch_copy_stale", "reel_watch_no_share"):
             assert name in strings, (values, name)
 
 
-def test_sheet_closes_after_copy():
-    """1.66: after a successful Copy tap the sheet is closed with Back."""
+def test_sheet_closes_only_after_fresh_clip_is_confirmed():
+    """Do not dismiss Share before Instagram has written the new link."""
     src = read(JAVA / "ReelWatchService.kt")
-    span = _span(src, "private fun scan()")
-    assert "performGlobalAction(GLOBAL_ACTION_BACK)" in span
+    read_clip = _span(src, "private fun readClipboard()")
+    dismiss = _span(src, "private fun dismissShareSheet()")
+    assert "dismissShareSheet()" in read_clip
+    assert "performGlobalAction(GLOBAL_ACTION_BACK)" in dismiss
+    scan = _span(src, "private fun scan()")
+    assert "performGlobalAction(GLOBAL_ACTION_BACK)" not in scan
 
 
 def test_every_terminal_path_derives_a_stage():
@@ -647,11 +651,24 @@ def test_kotlin_label_and_decision_logic(share_nodes_run):
 
 
 def test_stale_clipboard_cannot_download_the_wrong_reel():
-    """After Copy link we require a clip Instagram wrote just now."""
+    """Never reuse an old clipboard link when Copy did not update it."""
     src = read(JAVA / "ReelWatchService.kt")
-    assert "copyTappedAt = System.currentTimeMillis()" in src
-    assert "clip.description?.timestamp" in src
-    assert "stamped + CLIP_SKEW_MS < copyTappedAt" in src
+    click = _span(src, "private fun scan()")
+    copy_branch = click.split("ShareNodes.Step.COPY ->")[1].split("ShareNodes.Step.WAIT ->")[0]
+    assert copy_branch.index("watchClipboardForCopy()") < copy_branch.index("click(copy.node")
+    assert "stopClipboardWatch()" in copy_branch
+    assert "copyTappedAt = System.currentTimeMillis()" in copy_branch
+    read_clip = _span(src, "private fun readClipboard()")
+    assert 'if (!copyTapped)' in read_clip
+    assert 'clipboard ignored: Copy action not confirmed' in read_clip
+    assert "clipboardChangedAfterCopy" in src
+    assert "addPrimaryClipChangedListener" in src
+    assert "removePrimaryClipChangedListener" in src
+    assert "val fresh = if (stamped != 0L)" in src
+    assert "stamped + CLIP_SKEW_MS >= copyTappedAt" in src
+    assert "clipboardChangedAfterCopy" in src
+    assert "if (!fresh)" in src
+    assert 'clipboard not fresh after Copy tap' in src
 
 
 def test_clipboard_focus_borrow_uses_accessibility_overlay():
