@@ -8,7 +8,8 @@ import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
-/** The only reel/post resolver. There is deliberately no fallback source. */
+/** The primary reel/post resolver. It has no fallback of its own —
+ * InstagramClient tries quicksave only after this throws (1.71). */
 class ListnrService(
     private val client: OkHttpClient = defaultClient(),
 ) {
