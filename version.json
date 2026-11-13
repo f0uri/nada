@@ -1,6 +1,6 @@
 {
-  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.70: download failures now show listnr's real status and message (e.g. HTTP 400: No video found) instead of the mapped 502; transport retries unchanged.",
   "version": "1.70",
-  "versionCode": 70
+  "versionCode": 70,
+  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
+  "changelog": "IG SAVE 1.70: download failures now show listnr's real status and message (e.g. HTTP 400: No video found) instead of the mapped 502; transport retries unchanged."
 }
