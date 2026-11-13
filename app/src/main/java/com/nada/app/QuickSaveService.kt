@@ -260,7 +260,9 @@ class QuickSaveService : Service() {
             "rate" -> getString(R.string.save_fail_rate)
             "missing", "empty", "blocked", "login" -> getString(R.string.save_fail_missing)
             "network" -> getString(R.string.save_fail_resolve, diag.listnrDetail.ifBlank { "network" })
-            "upstream" -> getString(R.string.save_fail_upstream, ex.status.toString())
+            // Show listnr's real status/message ("HTTP 400: No video found"),
+            // never the mapped 502 — that code hid the real cause (1.70).
+            "upstream" -> getString(R.string.save_fail_upstream, diag.listnrDetail.ifBlank { "HTTP ${ex.status}" })
             "cdn", "host" -> getString(R.string.save_fail_cdn, diag.cdnDetail.ifBlank { ex.status.toString() })
             "store", "io" -> getString(R.string.save_fail_store, diag.storeDetail.ifBlank { "write" })
             "token", "expired" -> getString(R.string.save_fail_unexpected, ex.code)

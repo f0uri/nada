@@ -26,7 +26,7 @@
     <string name="save_fail_missing">La publication est indisponible, ou le compte est privé</string>
     <string name="save_fail_rate">Ralenti un moment. Réessayez dans un instant</string>
     <string name="save_fail_resolve">Impossible d\'atteindre le serveur de liens : %1$s</string>
-    <string name="save_fail_upstream">Impossible de récupérer le lien depuis le serveur (HTTP %1$s)</string>
+    <string name="save_fail_upstream">Impossible de récupérer le lien depuis le serveur (%1$s)</string>
     <string name="save_fail_cdn">Impossible de télécharger le fichier depuis Instagram : %1$s</string>
     <string name="save_fail_store">Impossible d\'enregistrer le fichier dans Téléchargements : %1$s</string>
     <string name="save_fail_unexpected">Erreur inattendue à l\'étape : %1$s</string>

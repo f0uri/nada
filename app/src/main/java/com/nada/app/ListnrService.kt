@@ -41,8 +41,16 @@ class ListnrService(
             try {
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
+                        // The body often names the real cause ("No video found
+                        // in response"); keep it — the notification must show
+                        // listnr's real status, not the mapped 502 (1.70).
+                        val message = runCatching {
+                            JSONObject(response.body?.string().orEmpty())
+                                .optString("message").trim()
+                        }.getOrDefault("").take(80)
                         diag?.note("listnr HTTP ${response.code} (attempt $attempt)")
-                        diag?.listnrDetail = "HTTP ${response.code}"
+                        diag?.listnrDetail = "HTTP ${response.code}" +
+                            if (message.isNotBlank()) ": $message" else ""
                         throw InstagramClient.ApiException(
                             if (response.code == 429) 429 else 502,
                             if (response.code == 429) "rate" else "upstream",
