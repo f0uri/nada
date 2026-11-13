@@ -188,6 +188,45 @@ def test_copy_click_climbs_deeper_sheets():
     assert "private const val CLICK_PARENT_HOPS = 8" in src
 
 
+def _span(src: str, start_marker: str) -> str:
+    i = src.index(start_marker)
+    j = src.index("{", i)
+    depth = 0
+    for p in range(j, len(src)):
+        if src[p] == "{":
+            depth += 1
+        elif src[p] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[i:p + 1]
+    raise AssertionError("unbalanced span")
+
+
+def test_sheet_dialog_windows_are_searched():
+    """1.65: the share sheet is a dialog window, and it must be searched.
+
+    Instagram's sheet is TYPE_APPLICATION_PANEL, not TYPE_APPLICATION, so
+    filtering by type skipped it: the sheet opened, "نسخ الرابط" sat on
+    screen, and the Copy tap never happened (1.63 on-device report).
+    """
+    src = read(JAVA / "ReelWatchService.kt")
+    span = _span(src, "private fun searchRoots()")
+    assert "TYPE_APPLICATION" not in span
+    assert "isSearchablePackage" in span
+    assert "private const val MAX_ROOTS = 6" in src
+
+
+def test_copy_click_allows_unknown_package():
+    """1.65: a node that reports no package may still be clicked.
+
+    The node was found inside a searched Instagram / resolver root, so a
+    missing package name must not refuse the Copy tap.
+    """
+    src = read(JAVA / "ReelWatchService.kt")
+    span = _span(src, "private fun click(")
+    assert "pkg.isNullOrEmpty()" in span
+
+
 def test_version_bumped_consistently():
     gradle = read(ROOT / "app" / "build.gradle.kts")
     # Derived from Gradle so a later release bump does not need a test edit.
