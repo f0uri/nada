@@ -48,6 +48,9 @@
     <string name="update_err_file">الملف المُنزَّل غير صالح</string>
     <string name="update_err_version">إصدار الملف ليس أحدث من الحالي</string>
     <string name="reel_watch_need_link">انسخ رابط الريل أولاً</string>
+    <string name="reel_watch_no_copy">ما لقيتش زر نسخ الرابط فالورقة</string>
+    <string name="reel_watch_copy_click_failed">لقيت نسخ الرابط وما قدرتش نضغط عليها</string>
+    <string name="reel_watch_no_share">ما لقيتش زر المشاركة</string>
     <string name="reel_watch_service_label">IG SAVE · تنزيل الريل المشاهد</string>
     <string name="reel_watch_service_summary">ضغطة واحدة على الزر العائم لتنزيل الريل المفتوح في إنستغرام.</string>
     <string name="reel_watch_service_description">يعمل فقط داخل إنستغرام وفقط بعد ضغطك على الزر العائم: يفتح قائمة المشاركة ويضغط نسخ الرابط ثم ينزّل الريل. لا يقرأ النص ولا كلمات المرور ولا محتوى أي تطبيق أو شاشة أخرى، ولا يعمل في الخلفية بدون ضغطتك. أوقفه في أي وقت من هذا الشاشة.</string>

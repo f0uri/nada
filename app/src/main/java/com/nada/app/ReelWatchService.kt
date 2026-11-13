@@ -55,6 +55,9 @@ class ReelWatchService : AccessibilityService() {
     private var shareTapped = false
     private var copyTapped = false
     private var copyTappedAt = 0L
+    private var copyClickFailed = false
+    /** Why the run gave up: no_share / no_copy / copy_click — shown in the toast. */
+    private var failStage = ""
     private var scans = 0
     private var deadline = 0L
     private var focusView: View? = null
@@ -107,6 +110,8 @@ class ReelWatchService : AccessibilityService() {
         shareTapped = false
         copyTapped = false
         copyTappedAt = 0L
+        copyClickFailed = false
+        failStage = ""
         scans = 0
         deadline = System.currentTimeMillis() + RUN_BUDGET_MS
         handler.post { scan() }
@@ -240,6 +245,11 @@ class ReelWatchService : AccessibilityService() {
     private fun scan() {
         if (finished) return
         if (System.currentTimeMillis() > deadline) {
+            failStage = when {
+                copyClickFailed -> "copy_click"
+                phase == ShareNodes.PHASE_WAIT_SHEET -> "no_copy"
+                else -> "no_share"
+            }
             readClipboard()
             return
         }
@@ -248,24 +258,30 @@ class ReelWatchService : AccessibilityService() {
         // sheet or the system share sheet), so the run keeps going until the
         // deadline instead of aborting on the window change.
         if (phase == ShareNodes.PHASE_FIND_SHARE && !instagramIsForeground()) {
+            failStage = "no_share"
             readClipboard()
             return
         }
         scans++
         val roots = searchRoots()
         var found = collectByQuery(roots)
-        // Only walk the tree when the cheap search came back empty, and only
-        // until the deadline; the walk is capped by MAX_NODES / MAX_DEPTH.
-        if (found.first == null && found.second == null &&
+        // Walk the tree whenever the Copy node is still missing: in the sheet
+        // the bottom row also holds a "Share" label, so a found Share used to
+        // suppress the walk and the Copy node was never looked for a second
+        // way (1.65 on-device report: sheet open, "نسخ الرابط" on screen,
+        // no tap). The walk is capped by MAX_NODES / MAX_DEPTH.
+        if (found.second == null &&
             System.currentTimeMillis() + WALK_SLACK_MS < deadline
         ) {
-            found = collectByIdWalk(roots)
+            val walked = collectByIdWalk(roots)
+            found = (found.first ?: walked.first) to walked.second
         }
         val share = found.first
         val copy = found.second
         when (ShareNodes.nextAction(phase, copy?.score ?: 0, share?.score ?: 0)) {
             ShareNodes.Step.SHARE -> {
                 if (shareTapped || share == null) {
+                    failStage = "no_share"
                     readClipboard()
                     return
                 }
@@ -281,19 +297,27 @@ class ReelWatchService : AccessibilityService() {
             }
             ShareNodes.Step.COPY -> {
                 if (copyTapped || copy == null) {
+                    failStage = if (copyClickFailed) "copy_click" else "no_copy"
                     readClipboard()
                     return
                 }
                 if (!click(copy.node, allowResolver = true)) {
+                    copyClickFailed = true
                     retryOrGiveUp()
                     return
                 }
                 copyTapped = true
                 copyTappedAt = System.currentTimeMillis()
+                // Close the sheet the user asked to be closed: a Back press
+                // dismisses Instagram's sheet, then the clipboard is read.
+                runCatching { performGlobalAction(GLOBAL_ACTION_BACK) }
                 handler.postDelayed({ readClipboard() }, COPY_SETTLE_MS)
             }
             ShareNodes.Step.WAIT -> scheduleScan()
-            ShareNodes.Step.GIVE_UP -> readClipboard()
+            ShareNodes.Step.GIVE_UP -> {
+                failStage = "no_share"
+                readClipboard()
+            }
         }
     }
 
@@ -465,8 +489,16 @@ class ReelWatchService : AccessibilityService() {
     }
 
     private fun needLinkToast() {
+        // Tell the user (and the next fix) exactly where the run stopped,
+        // instead of the same "copy the link first" for every failure.
+        val text = when (failStage) {
+            "no_copy" -> getString(R.string.reel_watch_no_copy)
+            "copy_click" -> getString(R.string.reel_watch_copy_click_failed)
+            "no_share" -> getString(R.string.reel_watch_no_share)
+            else -> getString(R.string.reel_watch_need_link)
+        }
         runCatching {
-            Toast.makeText(this, getString(R.string.reel_watch_need_link), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
         }
     }
 

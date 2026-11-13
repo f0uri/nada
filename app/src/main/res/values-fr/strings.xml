@@ -48,6 +48,9 @@
     <string name="update_err_file">Le fichier téléchargé n\'est pas valide</string>
     <string name="update_err_version">La version du fichier n\'est pas plus récente que l\'actuelle</string>
     <string name="reel_watch_need_link">Copiez d\'abord le lien du reel</string>
+    <string name="reel_watch_no_copy">Bouton Copier le lien introuvable dans la feuille</string>
+    <string name="reel_watch_copy_click_failed">Copier le lien trouvé mais impossible d\'appuyer dessus</string>
+    <string name="reel_watch_no_share">Bouton Partager introuvable</string>
     <string name="reel_watch_service_label">IG SAVE · Télécharger le reel que vous regardez</string>
     <string name="reel_watch_service_summary">Un appui sur le bouton flottant télécharge le reel ouvert dans Instagram.</string>
     <string name="reel_watch_service_description">Fonctionne uniquement dans Instagram et seulement après votre appui sur le bouton flottant : il ouvre le menu de partage, appuie sur Copier le lien, puis télécharge le reel. Il ne lit ni le texte, ni les mots de passe, ni le contenu d\'aucune autre application ou écran, et ne fonctionne pas en arrière-plan sans votre appui. Arrêtez-le à tout moment depuis cet écran.</string>

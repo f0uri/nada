@@ -91,7 +91,6 @@ def test_new_code_has_no_positional_tap_api(path):
         "StrokeDescription",
         "MotionEvent.obtain",
         "injectInputEvent",
-        "performGlobalAction",
         "clickAt",
         "tapAt",
         "getBoundsInScreen",
@@ -100,6 +99,10 @@ def test_new_code_has_no_positional_tap_api(path):
     ]
     for token in forbidden:
         assert token not in code, f"{path.name} must not use {token}"
+    # The single allowed global action is Back, used once to close the share
+    # sheet after a successful Copy tap (1.66): it targets no control.
+    assert code.count("performGlobalAction(") <= 1
+    assert set(re.findall(r"GLOBAL_ACTION_\w+", code)) <= {"GLOBAL_ACTION_BACK"}
     # No x/y coordinate pairs feeding a tap.
     assert not re.search(r"\b(?:tap|click|touch)\w*\(\s*\d+\s*,\s*\d+", code, re.IGNORECASE)
 
@@ -225,6 +228,46 @@ def test_copy_click_allows_unknown_package():
     src = read(JAVA / "ReelWatchService.kt")
     span = _span(src, "private fun click(")
     assert "pkg.isNullOrEmpty()" in span
+
+
+def test_copy_walk_runs_when_share_found():
+    """1.66: the tree walk must run whenever the Copy node is missing.
+
+    In the sheet the bottom row also holds a "Share" label, so a found Share
+    used to suppress the walk and the Copy node was never looked for a
+    second way (1.65 on-device report: sheet open, "نسخ الرابط" on screen,
+    no tap).
+    """
+    src = read(JAVA / "ReelWatchService.kt")
+    span = _span(src, "private fun scan()")
+    assert "if (found.first == null && found.second == null" not in span
+    assert "if (found.second == null" in span
+    assert "collectByIdWalk(roots)" in span
+
+
+def test_copy_failure_reports_its_stage():
+    """1.66: the give-up toast says where the run stopped.
+
+    "Copy the link first" for every failure hid the cause; the next fix
+    needs to know whether Copy was never found, found but untappable, or
+    Share was never found.
+    """
+    src = read(JAVA / "ReelWatchService.kt")
+    for marker in ("failStage", "copyClickFailed", "reel_watch_no_copy",
+                   "reel_watch_copy_click_failed", "reel_watch_no_share"):
+        assert marker in src, marker
+    for values in ("values", "values-en", "values-fr"):
+        strings = read(APP / "res" / values / "strings.xml")
+        for name in ("reel_watch_no_copy", "reel_watch_copy_click_failed",
+                     "reel_watch_no_share"):
+            assert name in strings, (values, name)
+
+
+def test_sheet_closes_after_copy():
+    """1.66: after a successful Copy tap the sheet is closed with Back."""
+    src = read(JAVA / "ReelWatchService.kt")
+    span = _span(src, "private fun scan()")
+    assert "performGlobalAction(GLOBAL_ACTION_BACK)" in span
 
 
 def test_version_bumped_consistently():
