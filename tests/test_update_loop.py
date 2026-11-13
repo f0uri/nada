@@ -275,13 +275,42 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_69():
+def test_version_bumped_to_70():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 69" in gradle
-    assert 'versionName = "1.69"' in gradle
+    assert "versionCode = 70" in gradle
+    assert 'versionName = "1.70"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.69"
-    assert manifest["versionCode"] == 69
+    assert manifest["version"] == "1.70"
+    assert manifest["versionCode"] == 70
+
+
+# ---------------------------------------------------------------------------
+# 1.70: the download failure shows listnr's real status and message
+# ---------------------------------------------------------------------------
+
+def test_listnr_failure_shows_its_real_status_and_message():
+    """1.70: the notification shows listnr's real HTTP status and body
+    message (e.g. HTTP 400: No video found), never the mapped 502 that hid
+    the cause on the user's phone.
+    """
+    src = read(JAVA / "ListnrService.kt")
+    block = src.split("if (!response.isSuccessful)")[1].split("val body = response.body")[0]
+    assert 'optString("message")' in block
+    assert 'diag?.listnrDetail = "HTTP ${response.code}"' in block
+    qs = read(JAVA / "QuickSaveService.kt")
+    map_error = qs.split("private fun mapError(")[1].split("private fun unexpectedAt(")[0]
+    upstream_line = next(
+        line for line in map_error.splitlines() if '"upstream"' in line
+    )
+    # The detail comes from the diagnostic (listnr's real status/message);
+    # the mapped status is only the blank-fallback, never the shown value.
+    assert "diag.listnrDetail.ifBlank" in upstream_line
+    assert "ex.status.toString()" not in upstream_line
+    # The string carries the detail verbatim — no hardcoded "HTTP" doubling it.
+    for values in ("values", "values-en", "values-fr"):
+        text = read(APP / "res" / values / "strings.xml")
+        assert '(HTTP %1$s)' not in text
+        assert 'name="save_fail_upstream"' in text
 
 
 # ---------------------------------------------------------------------------
