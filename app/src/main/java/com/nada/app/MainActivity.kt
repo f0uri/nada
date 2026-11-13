@@ -256,6 +256,15 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { shareLastBubbleRun() }
         }
 
+        /** Additive one-line evidence row for listnr/CDN/store failures. */
+        @JavascriptInterface
+        fun lastDownloadRun(): String = QuickSaveService.lastRunSummary(this@MainActivity)
+
+        @JavascriptInterface
+        fun shareDownloadRun() {
+            runOnUiThread { shareLastDownloadRun() }
+        }
+
         /** One-line status for the check box; does not open any dialog. */
         @JavascriptInterface
         fun updateAvailable(): Boolean = AppUpdateManager.get(this@MainActivity).hasUpdate()
@@ -364,6 +373,20 @@ class MainActivity : AppCompatActivity() {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             startActivity(Intent.createChooser(send, getString(R.string.reel_watch_share_debug)))
+        }
+    }
+
+    /** Shares only the last-download diagnostic file, never media bytes. */
+    private fun shareLastDownloadRun() {
+        val file = QuickSaveService.lastRunFile(this) ?: return
+        runCatching {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(send, getString(R.string.download_share_debug)))
         }
     }
 

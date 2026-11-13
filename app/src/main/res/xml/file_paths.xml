@@ -2,4 +2,5 @@
 <paths>
     <cache-path name="updates" path="updates/" />
     <external-files-path name="bubble-debug" path="." />
+    <external-files-path name="download-debug" path="." />
 </paths>

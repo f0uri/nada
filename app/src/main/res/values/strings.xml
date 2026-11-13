@@ -25,6 +25,12 @@
     <string name="save_fail_url">هذا ليس رابط إنستغرام صالحاً</string>
     <string name="save_fail_missing">المنشور غير متاح، أو الحساب خاص</string>
     <string name="save_fail_rate">تم الإبطاء قليلاً. أعد المحاولة بعد لحظة</string>
+    <string name="save_fail_resolve">تعذّر الوصول إلى خادم الجلب: %1$s</string>
+    <string name="save_fail_upstream">تعذّر جلب الرابط من الخادم (HTTP %1$s)</string>
+    <string name="save_fail_cdn">تعذّر تنزيل الملف من إنستغرام: %1$s</string>
+    <string name="save_fail_store">تعذّر حفظ الملف في التنزيلات: %1$s</string>
+    <string name="save_fail_unexpected">خطأ غير متوقع في الخطوة: %1$s</string>
+    <string name="download_share_debug">مشاركة تشخيص آخر تنزيل</string>
     <string name="save_fail_net">تعذّر الاتصال. تحقق من الشبكة</string>
     <string name="battery_channel">التشغيل في الخلفية</string>
     <string name="update_title">تحديث IG SAVE</string>

@@ -25,7 +25,8 @@ APP = ROOT / "app" / "src" / "main"
 JAVA = APP / "java" / "com" / "nada" / "app"
 ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
-NEW_SOURCES = [JAVA / "ReelWatchService.kt", JAVA / "ShareNodes.kt", JAVA / "BubbleDiagnostics.kt"]
+NEW_SOURCES = [JAVA / "ReelWatchService.kt", JAVA / "ShareNodes.kt", JAVA / "BubbleDiagnostics.kt",
+                JAVA / "DownloadDiagnostics.kt"]
 
 
 def read(path: Path) -> str:
@@ -169,10 +170,10 @@ def test_resolver_and_protected_files_untouched():
         "app/src/main/java/com/nada/app/NadaServer.kt",
         "app/src/main/java/com/nada/app/PageMediaSniffer.kt",
         "app/src/main/java/com/nada/app/BannerAds.kt",
-        "app/src/main/java/com/nada/app/ListnrService.kt",
-        "app/src/main/java/com/nada/app/InstagramClient.kt",
+        # 1.68 owns the download core: failures name their step and every
+        # terminal path records shareable evidence. The listnr-only design
+        # itself is unchanged (no fallback resolver exists).
         "app/src/main/java/com/nada/app/IgLinks.kt",
-        "app/src/main/java/com/nada/app/QuickSaveService.kt",
         "app/src/main/java/com/nada/app/QuickSaveActivity.kt",
         "app/src/main/java/com/nada/app/ShareCatcherActivity.kt",
         # 1.63 owns the trilingual WebView work, so app.js is no longer
@@ -400,6 +401,7 @@ def share_nodes_run():
     harness = """
 import com.nada.app.ShareNodes
 import com.nada.app.BubbleDiagnostics
+import com.nada.app.DownloadDiagnostics
 
 fun check(name: String, actual: Any?, expected: Any?) {
     if (actual.toString() != expected.toString()) {
@@ -505,6 +507,50 @@ fun main() {
     check("report has outcome", report.contains("outcome=need_link"), true)
     for (i in 2..80) d.beginScan(i, wait, i.toLong())
     check("history bounded", d.report().lines().count { it.startsWith("scan=") }, 60)
+    // --- Download diagnostics: every failure names its step (1.68) -------
+    check("classify dns", DownloadDiagnostics.classify(java.net.UnknownHostException("host")), "dns")
+    check("classify timeout", DownloadDiagnostics.classify(java.net.SocketTimeoutException("timeout")), "timeout")
+    check("classify call timeout", DownloadDiagnostics.classify(java.io.InterruptedIOException("timeout")), "timeout")
+    check("classify connect", DownloadDiagnostics.classify(java.net.ConnectException("failed to connect")), "connect")
+    check("classify tls", DownloadDiagnostics.classify(javax.net.ssl.SSLHandshakeException("bad cert")), "tls")
+    check("classify read", DownloadDiagnostics.classify(java.io.EOFException("unexpected end of stream")), "read")
+    check("classify io", DownloadDiagnostics.classify(java.io.IOException("boom")), "io")
+    val g = DownloadDiagnostics()
+    g.url = "https://www.instagram.com/reel/AbCdEfGhIj/"
+    g.begin(DownloadDiagnostics.STEP_START)
+    g.begin(DownloadDiagnostics.STEP_LISTNR)
+    g.listnrDetail = "timeout \\u00d72"
+    g.note("listnr timeout (attempt 1)")
+    g.begin(DownloadDiagnostics.STEP_CDN)
+    g.cdnHost = "scontent.cdninstagram.com"
+    g.cdnDetail = "HTTP 403"
+    g.finish("fail:cdn")
+    check("stage kept", g.stage, DownloadDiagnostics.STEP_CDN)
+    check("outcome names step", g.outcome, "fail:cdn")
+    check("elapsed recorded", g.elapsedMs >= 0, true)
+    val gsum = g.summary()
+    check("sum one line", gsum.contains("\\n"), false)
+    check("sum stage", gsum.contains("stage=cdn"), true)
+    check("sum listnr", gsum.contains("listnr=timeout"), true)
+    check("sum cdn host", gsum.contains("scontent.cdninstagram.com HTTP 403"), true)
+    check("sum bytes", gsum.contains("bytes=0"), true)
+    val grep = g.report()
+    check("rep url", grep.contains("reel/AbCdEfGhIj/"), true)
+    check("rep step order", grep.contains("step: begin listnr"), true)
+    check("rep note", grep.contains("note: listnr timeout (attempt 1)"), true)
+    check("rep store blank", grep.contains("store=-"), true)
+    g.finish("ok")
+    check("first outcome wins", g.outcome, "fail:cdn")
+    check("notes cap on fresh run", run {
+        val h = DownloadDiagnostics()
+        for (i in 1..50) h.note("n$i")
+        h.report().lines().count { it.startsWith("note: ") }
+    }, 12)
+    check("steps cap on fresh run", run {
+        val h = DownloadDiagnostics()
+        for (i in 1..50) h.begin("s$i")
+        h.report().lines().count { it.startsWith("step: ") }
+    }, 24)
     println("ALL PASS")
 }
 """
@@ -516,7 +562,8 @@ fun main() {
         cp = os.pathsep.join(str(p) for p in lib.glob("*.jar"))
         compile_run = subprocess.run(
             [java, "-cp", cp, "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler",
-             str(JAVA / "ShareNodes.kt"), str(JAVA / "BubbleDiagnostics.kt"), str(src),
+             str(JAVA / "ShareNodes.kt"), str(JAVA / "BubbleDiagnostics.kt"),
+             str(JAVA / "DownloadDiagnostics.kt"), str(src),
              "-cp", str(lib / "kotlin-stdlib.jar"), "-no-stdlib", "-jvm-target", "17",
              "-d", str(out)],
             capture_output=True, text=True, timeout=600,
