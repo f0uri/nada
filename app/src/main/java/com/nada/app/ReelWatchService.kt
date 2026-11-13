@@ -133,7 +133,12 @@ class ReelWatchService : AccessibilityService() {
     /**
      * Roots worth searching. Before Share is tapped, Instagram only. Once Share
      * was tapped, Instagram plus the system share-sheet windows, because the
-     * Copy link node may live in either one.
+     * Copy link node may live in either one. Every window type is searched:
+     * Instagram's sheet is a dialog (TYPE_APPLICATION_PANEL), not an
+     * application window, and filtering by type silently skipped it — the
+     * sheet opened, "نسخ الرابط" sat on screen, and the Copy tap never
+     * happened (1.63 on-device report). The package check still gates
+     * everything, so no other app's windows are ever searched.
      */
     private fun searchRoots(): List<AccessibilityNodeInfo> {
         val out = ArrayList<AccessibilityNodeInfo>(MAX_ROOTS)
@@ -142,8 +147,7 @@ class ReelWatchService : AccessibilityService() {
             out += active
         }
         val extra = runCatching {
-            windows.filter { it.type == AccessibilityWindowInfo.TYPE_APPLICATION }
-                .mapNotNull { it.root }
+            windows.mapNotNull { it.root }
                 .filter { ShareNodes.isSearchablePackage(it.packageName?.toString(), phase) }
         }.getOrDefault(emptyList())
         for (root in extra) {
@@ -328,8 +332,12 @@ class ReelWatchService : AccessibilityService() {
         while (current != null && hops < CLICK_PARENT_HOPS) {
             val active = current
             val pkg = runCatching { active.packageName?.toString() }.getOrNull()
+            // A node found inside a searched Instagram / resolver root may
+            // report no package at all; refusing it would strand the Copy
+            // tap even though the node is inside an approved window.
             val inScope = pkg == ShareNodes.INSTAGRAM_PACKAGE ||
-                (allowResolver && pkg != null && pkg in ShareNodes.RESOLVER_PACKAGES)
+                (allowResolver && pkg != null && pkg in ShareNodes.RESOLVER_PACKAGES) ||
+                pkg.isNullOrEmpty()
             if (!inScope) return false
             val clickable = runCatching { active.isClickable }.getOrDefault(false)
             if (clickable) {
@@ -470,7 +478,7 @@ class ReelWatchService : AccessibilityService() {
         private const val MAX_NODES = 900
         private const val WALK_SLACK_MS = 900L
         private const val MAX_DEPTH = 40
-        private const val MAX_ROOTS = 3
+        private const val MAX_ROOTS = 6
         // Copy rows in the sheet can sit several layouts deep (icon + text +
         // row + list), so the click is allowed to climb further up the tree.
         private const val CLICK_PARENT_HOPS = 8
