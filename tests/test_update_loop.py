@@ -275,13 +275,37 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_70():
+def test_version_bumped_to_71():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 70" in gradle
-    assert 'versionName = "1.70"' in gradle
+    assert "versionCode = 71" in gradle
+    assert 'versionName = "1.71"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.70"
-    assert manifest["versionCode"] == 70
+    assert manifest["version"] == "1.71"
+    assert manifest["versionCode"] == 71
+
+
+# ---------------------------------------------------------------------------
+# 1.71: quicksave fallback when listnr cannot find the reel
+# ---------------------------------------------------------------------------
+
+def test_quicksave_fallback_when_listnr_cannot_find_the_reel():
+    """1.71: listnr first; quicksave only when listnr fails. The listnr
+    cause is kept when both fail, and the diagnostic names the source."""
+    qs = read(JAVA / "QuickSaveFallback.kt")
+    assert 'const val ENDPOINT = "https://quicksave.my/api/info"' in qs
+    assert '"https://quicksave.my"' in qs
+    assert 'optJSONArray("formats")' in qs
+    assert "bestHeight" in qs
+    assert "30, TimeUnit.SECONDS" in qs
+    ic = read(JAVA / "InstagramClient.kt")
+    fetch = ic.split("private fun fetchMediaItem(")[1].split("fun prepareSave(")[0]
+    assert "listnr.resolve(" in fetch
+    assert "quickSave.resolve(" in fetch
+    assert "viaQuickSave = true" in fetch
+    assert "throw listnrEx" in fetch
+    diag = read(JAVA / "DownloadDiagnostics.kt")
+    assert "var viaQuickSave" in diag
+    assert '" via="' in diag
 
 
 # ---------------------------------------------------------------------------
@@ -363,7 +387,9 @@ def test_listnr_resolve_retries_transport_failures_once():
     diag = read(JAVA / "DownloadDiagnostics.kt")
     for kind in ('"dns"', '"tls"', '"connect"', '"timeout"', '"read"', '"io"'):
         assert kind in diag
-    # Still the only resolver: no fallback endpoint was introduced.
+    # ListnrService itself stays listnr-only; the quicksave fallback lives
+    # in InstagramClient.fetchMediaItem, which tries it only after listnr
+    # throws (1.71).
     assert src.count("ENDPOINT") >= 1
     assert "bff.listnr.tech" in src
 
