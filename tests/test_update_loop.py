@@ -263,25 +263,22 @@ def test_protected_files_untouched():
         "app/src/main/java/com/nada/app/BannerAds.kt",
         # 1.60 owns the bubble files, so they are no longer protected here.
         "app/src/main/java/com/nada/app/BubbleService.kt",
-        # 1.68 owns the download core: failures name their step and every
-        # terminal path records shareable evidence. Listnr stays the only
-        # resolver — no fallback source was added.
-        # 1.63 owns the trilingual WebView work, so app.js / reelwatch.js are
-        # no longer protected here either.
-        "app/src/main/assets/styles.css",
+        # 1.68/1.71 own the download pipeline and listnr-first fallback.
+        # 1.63 owns the trilingual WebView work, and 1.73 owns responsive
+        # About-card wrapping, so styles.css is no longer protected here.
         "signing/nada.jks",
         "server.py",
     }
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_72():
+def test_version_bumped_to_73():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 72" in gradle
-    assert 'versionName = "1.72"' in gradle
+    assert "versionCode = 73" in gradle
+    assert 'versionName = "1.73"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.72"
-    assert manifest["versionCode"] == 72
+    assert manifest["version"] == "1.73"
+    assert manifest["versionCode"] == 73
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +303,14 @@ def test_quicksave_fallback_when_listnr_cannot_find_the_reel():
     diag = read(JAVA / "DownloadDiagnostics.kt")
     assert "var viaQuickSave" in diag
     assert '" via="' in diag
+    assert "var quickSaveDetail" in diag
+    assert '" quicksave="' in diag
+    assert '"quicksave="' in diag
+    # A failed fallback used to be swallowed while the original Listnr 400
+    # was rethrown, making the About line look as if Listnr was the only try.
+    assert 'quickSaveDetail = "HTTP ${response.code}"' in qs
+    assert 'quickSaveDetail = kind' in qs
+    assert 'quickSaveDetail = "no video format"' in qs
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +328,21 @@ def test_webview_fits_the_page_to_the_screen():
     assert "useWideViewPort = true" in web
     assert "loadWithOverviewMode = true" in web
     assert "textZoom = 100" in web
+
+
+def test_about_page_diagnostics_and_paragraphs_wrap():
+    """1.73: remove no-wrap styles that forced diagnostic summaries past
+    the viewport; constrain cards and wrap long words in both CSS mirrors.
+    """
+    html = read(APP / "assets" / "index.html")
+    assert 'id="downloadDebug" class="fine" dir="ltr" hidden' in html
+    assert 'id="reelWatchDebug" class="fine" dir="ltr" hidden' in html
+    assert "white-space:nowrap;overflow-x:auto" not in html
+    css = read(APP / "assets" / "styles.css")
+    assert css == read(ROOT / "static" / "styles.css")
+    assert ".card { min-width: 0; max-width: 100%;" in css
+    assert '.card p.fine[dir="ltr"] { white-space: normal;' in css
+    assert "overflow-wrap: anywhere; word-break: break-word" in css
 
 
 # ---------------------------------------------------------------------------

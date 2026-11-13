@@ -170,16 +170,14 @@ def test_resolver_and_protected_files_untouched():
         "app/src/main/java/com/nada/app/NadaServer.kt",
         "app/src/main/java/com/nada/app/PageMediaSniffer.kt",
         "app/src/main/java/com/nada/app/BannerAds.kt",
-        # 1.68 owns the download core: failures name their step and every
-        # terminal path records shareable evidence. The listnr-only design
-        # itself is unchanged (no fallback resolver exists).
+        # 1.68/1.71 own the download pipeline and listnr-first quicksave
+        # fallback. The original activity / URL-normalization boundaries below
+        # remain protected from unrelated bubble and About-page work.
         "app/src/main/java/com/nada/app/IgLinks.kt",
         "app/src/main/java/com/nada/app/QuickSaveActivity.kt",
         "app/src/main/java/com/nada/app/ShareCatcherActivity.kt",
-        # 1.63 owns the trilingual WebView work, so app.js is no longer
-        # protected here (the download core above still is).
-        "app/src/main/assets/styles.css",
-        "static/styles.css",
+        # 1.63 owns the trilingual WebView work, and 1.73 owns responsive
+        # About-card wrapping, so styles.css is no longer protected here.
         "signing/nada.jks",
         "server.py",
     }
@@ -554,8 +552,10 @@ fun main() {
     g.url = "https://www.instagram.com/reel/AbCdEfGhIj/"
     g.begin(DownloadDiagnostics.STEP_START)
     g.begin(DownloadDiagnostics.STEP_LISTNR)
-    g.listnrDetail = "timeout \\u00d72"
-    g.note("listnr timeout (attempt 1)")
+    g.listnrDetail = "HTTP 400: No video found in response"
+    g.quickSaveDetail = "HTTP 200, height=720"
+    g.viaQuickSave = true
+    g.note("listnr HTTP 400; trying quicksave")
     g.begin(DownloadDiagnostics.STEP_CDN)
     g.cdnHost = "scontent.cdninstagram.com"
     g.cdnDetail = "HTTP 403"
@@ -566,13 +566,16 @@ fun main() {
     val gsum = g.summary()
     check("sum one line", gsum.contains("\\n"), false)
     check("sum stage", gsum.contains("stage=cdn"), true)
-    check("sum listnr", gsum.contains("listnr=timeout"), true)
+    check("sum listnr cause", gsum.contains("listnr=HTTP 400: No video found in response"), true)
+    check("sum fallback result", gsum.contains("quicksave=HTTP 200, height=720"), true)
+    check("sum source", gsum.contains("via=quicksave"), true)
     check("sum cdn host", gsum.contains("scontent.cdninstagram.com HTTP 403"), true)
     check("sum bytes", gsum.contains("bytes=0"), true)
     val grep = g.report()
     check("rep url", grep.contains("reel/AbCdEfGhIj/"), true)
     check("rep step order", grep.contains("step: begin listnr"), true)
-    check("rep note", grep.contains("note: listnr timeout (attempt 1)"), true)
+    check("report quicksave result", grep.contains("quicksave=HTTP 200, height=720"), true)
+    check("rep note", grep.contains("note: listnr HTTP 400; trying quicksave"), true)
     check("rep store blank", grep.contains("store=-"), true)
     g.finish("ok")
     check("first outcome wins", g.outcome, "fail:cdn")

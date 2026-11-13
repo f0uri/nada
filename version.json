@@ -1,6 +1,6 @@
 {
-  "version": "1.72",
-  "versionCode": 72,
+  "version": "1.73",
+  "versionCode": 73,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.72: the in-app page now fits the screen \u2014 the About page no longer looks zoomed in with content cut off on the sides."
+  "changelog": "IG SAVE 1.73: downloads now show both Listnr and quicksave fallback outcomes, so a reel-specific Listnr miss no longer hides why fallback failed. The About page wraps paragraphs and diagnostic lines within the screen instead of clipping them."
 }
