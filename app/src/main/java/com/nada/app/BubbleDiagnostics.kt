@@ -143,7 +143,7 @@ class BubbleDiagnostics {
         if (notes.size < MAX_NOTES && text.isNotBlank() && text !in notes) notes += text
     }
 
-    /** One line for the existing About card; no additional screen. */
+    /** Internal one-line summary for the About share control; no extra screen. */
     fun summary(): String = "roots=$roots bestCopy=$bestCopy walkCopy=$walkCopy " +
         "copySeen=$copySeen filtered=$copyFiltered click=$clickResult " +
         "scans=$scans ms=$elapsedMs stage=${stage.ifBlank { "none" }}"

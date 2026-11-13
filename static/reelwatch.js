@@ -12,7 +12,7 @@
     disabled: "غير مفعّل. فعّل «IG SAVE» في إمكانية الوصول.",
     restricted: "إذا كان المفتاح رمادياً: معلومات التطبيق ← القائمة ⋮ ← السماح بالإعدادات المقيّدة.",
     needApp: "هذه الميزة تعمل داخل تطبيق أندرويد فقط.",
-    debugShare: "اضغط لمشاركة تشخيص آخر ضغطة",
+    debugShare: "مشاركة تشخيص آخر ضغطة",
   };
   const en = {
     title: "One-tap reel download",
@@ -24,7 +24,7 @@
     disabled: "Off. Enable “IG SAVE” in Accessibility settings.",
     restricted: "If the switch is greyed out: App info → ⋮ menu → Allow restricted settings.",
     needApp: "This feature only works in the Android app.",
-    debugShare: "Tap to share the last tap diagnostics",
+    debugShare: "Share last tap diagnostics",
   };
   const fr = {
     title: "Télécharger le reel en un appui",
@@ -36,7 +36,7 @@
     disabled: "Désactivé. Activez « IG SAVE » dans les paramètres d'accessibilité.",
     restricted: "Si l'interrupteur est grisé : Infos sur l'appli → menu ⋮ → Autoriser les paramètres restreints.",
     needApp: "Cette fonction ne marche que dans l'application Android.",
-    debugShare: "Appuyez pour partager le diagnostic du dernier appui",
+    debugShare: "Partager le diagnostic du dernier appui",
   };
   function bridge() {
     return window.NadaBridge && typeof window.NadaBridge.isReelWatchOn === "function" ? window.NadaBridge : null;
@@ -57,7 +57,8 @@
     let line = "";
     try { line = b && typeof b.lastBubbleRun === "function" ? String(b.lastBubbleRun() || "") : ""; } catch (e) { /* optional debug row */ }
     row.hidden = !line;
-    row.textContent = line;
+    // Keep diagnostics shareable from About without displaying raw tokens.
+    row.textContent = line ? strings().debugShare : "";
     row.title = line ? strings().debugShare : "";
   }
   function render() {

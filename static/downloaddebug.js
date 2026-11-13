@@ -1,9 +1,9 @@
 (() => {
   const row = document.getElementById("downloadDebug");
   if (!row) return;
-  const ar = { share: "اضغط لمشاركة تشخيص آخر تنزيل" };
-  const en = { share: "Tap to share the last download diagnostics" };
-  const fr = { share: "Appuyez pour partager le diagnostic du dernier téléchargement" };
+  const ar = { share: "مشاركة تشخيص آخر تنزيل" };
+  const en = { share: "Share last download diagnostics" };
+  const fr = { share: "Partager le diagnostic du dernier téléchargement" };
   function strings() {
     const lang = localStorage.getItem("nada-lang") || document.documentElement.lang || "ar";
     return lang.startsWith("fr") ? fr : lang.startsWith("en") ? en : ar;
@@ -18,7 +18,9 @@
       line = b ? String(b.lastDownloadRun() || "") : "";
     } catch (e) { /* optional debug row */ }
     row.hidden = !line;
-    row.textContent = line;
+    // Keep the report shareable without exposing the raw diagnostic summary
+    // in About (1.74).
+    row.textContent = line ? strings().share : "";
     row.title = line ? strings().share : "";
   }
   row.setAttribute("role", "button");
