@@ -1,6 +1,1 @@
-{
-  "version": "1.64",
-  "versionCode": 64,
-  "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.64: the update no longer stalls at 100% 'installing' \u2014 if the install permission is missing, the app now tells you and opens the setting instead of stopping silently. The download bar also matches the preview now: a white shimmer sweeps the gold bar, a glowing tip rides the fill, and the card is frosted glass."
-}
+{"apkUrl":"https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk","changelog":"IG SAVE 1.65: the bubble now presses Copy link by itself. The share sheet is a dialog window and the service was only searching application windows, so 'نسخ الرابط' sat on screen untouched — the search now covers every window of Instagram and the system share sheet, and a Copy tap is no longer refused when a node reports no package.","version":"1.65","versionCode":65}
