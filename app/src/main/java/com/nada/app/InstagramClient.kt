@@ -18,10 +18,12 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Public-reel/post media is resolved exclusively through ListnrService.
- * Profile metadata is a separate feature and still uses web_profile_info,
- * with public profile HTML only as a metadata fallback. No media URL is ever
- * extracted from profile/feed/story responses.
+ * Public-reel/post media is resolved through ListnrService first; when
+ * listnr cannot find the video, quicksave.my is the fallback — the same
+ * fallback Reel Checker already uses (1.71). Profile metadata is a separate
+ * feature and still uses web_profile_info, with public profile HTML only as
+ * a metadata fallback. No media URL is ever extracted from profile/feed/
+ * story responses.
  */
 class InstagramClient {
     private val secret = "nada-dew-glass-2026".toByteArray(StandardCharsets.UTF_8)
@@ -54,6 +56,7 @@ class InstagramClient {
         .callTimeout(90, TimeUnit.SECONDS)
         .build()
     private val listnr = ListnrService()
+    private val quickSave = QuickSaveFallback()
 
     @Volatile private var csrf: String = ""
 
@@ -93,9 +96,27 @@ class InstagramClient {
             .put("source", url)
     }
 
-    /** The sole media-item source. Failure is returned to the existing UI. */
-    private fun fetchMediaItem(shortcode: String, diag: DownloadDiagnostics?): ListnrService.Video =
-        listnr.resolve("https://www.instagram.com/reel/$shortcode/", diag)
+    /**
+     * Listnr first; quicksave only when listnr cannot find the video.
+     * A fallback failure never hides the listnr cause: the listnr exception
+     * is rethrown and both attempts are recorded in the diagnostic.
+     */
+    private fun fetchMediaItem(shortcode: String, diag: DownloadDiagnostics?): ListnrService.Video {
+        val postUrl = "https://www.instagram.com/reel/$shortcode/"
+        try {
+            return listnr.resolve(postUrl, diag)
+        } catch (listnrEx: ApiException) {
+            diag?.note("listnr failed (${listnrEx.code}), trying quicksave")
+            try {
+                val video = quickSave.resolve(postUrl, diag)
+                diag?.viaQuickSave = true
+                return video
+            } catch (_: ApiException) {
+                diag?.note("quicksave failed too, keeping listnr cause")
+                throw listnrEx
+            }
+        }
+    }
 
     fun prepareSave(rawUrl: String, diag: DownloadDiagnostics? = null): SaveBatch {
         val post = resolve(rawUrl, diag)

@@ -1,6 +1,6 @@
 {
-  "version": "1.70",
-  "versionCode": 70,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.70: download failures now show listnr's real status and message (e.g. HTTP 400: No video found) instead of the mapped 502; transport retries unchanged."
+  "changelog": "IG SAVE 1.71: when listnr cannot find a reel (HTTP 400 No video found), the app now tries quicksave as a fallback — the same fallback Reel Checker already uses. Listnr stays first.",
+  "version": "1.71",
+  "versionCode": 71
 }
