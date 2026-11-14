@@ -301,8 +301,14 @@ def test_sheet_closes_only_after_fresh_clip_is_confirmed():
     """Do not dismiss Share before Instagram has written the new link."""
     src = read(JAVA / "ReelWatchService.kt")
     read_clip = _span(src, "private fun readClipboard(")
-    dismiss = _span(src, "private fun dismissShareSheet()")
-    assert "dismissShareSheet()" in read_clip
+    save = _span(src, "private fun save(url: String)")
+    dismiss = _span(src, "private fun dismissShareSheet(")
+    assert "save(link)" in read_clip
+    assert "dismissShareSheet { persistDiagnostics(\"saved\") }" in save
+    assert save.index("dropFocusWindow()") < save.index("dismissShareSheet")
+    assert "SHEET_BACK_FOCUS_DELAY_MS" in dismiss
+    assert "isCopyControlVisible()" in dismiss
+    assert "share sheet remained open; retrying Back once" in dismiss
     assert "performGlobalAction(GLOBAL_ACTION_BACK)" in dismiss
     scan = _span(src, "private fun scan()")
     assert "performGlobalAction(GLOBAL_ACTION_BACK)" not in scan

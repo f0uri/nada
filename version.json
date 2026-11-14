@@ -1,6 +1,6 @@
 {
-  "version": "1.77",
-  "versionCode": 77,
+  "version": "1.78",
+  "versionCode": 78,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.77: checks clipboard freshness while holding temporary accessibility-window focus, as required by Android 10+ clipboard privacy limits. It downloads only after confirming a fresh link and keeps the share sheet open otherwise."
+  "changelog": "IG SAVE 1.78: after a confirmed download link is saved, the app removes its temporary focus overlay, checks whether Instagram's Copy link sheet is still present, and sends Back only if needed. It verifies the sheet closed and retries Back once if necessary."
 }
