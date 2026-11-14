@@ -230,20 +230,21 @@ class InstagramClient {
                     throw ApiException(502, "upstream")
                 }
                 val html = readBounded(body.byteStream(), MAX_POST_HTML_BYTES)
-                val imageUrl = extractPublicImageUrl(html)
-                if (imageUrl.isBlank() || !isSafeCdnImage(imageUrl)) {
-                    diag?.imagePageDetail = "no allowed public image metadata"
-                    throw ApiException(404, "empty")
-                }
+                val image = extractPublicImage(html)
+                    ?: run {
+                        diag?.imagePageDetail = "no allowed public image metadata"
+                        throw ApiException(404, "empty")
+                    }
+                val imageUrl = image.url
                 val extension = imageExtension(imageUrl)
                 val mime = when (extension) {
                     "png" -> "image/png"
                     "webp" -> "image/webp"
                     else -> "image/jpeg"
                 }
-                diag?.imagePageDetail = "public image metadata found"
+                diag?.imagePageDetail = "${image.source} selected"
                 diag?.viaInstagramPage = true
-                diag?.note("public post image metadata accepted")
+                diag?.note("public post ${image.source} image accepted")
                 return SaveFile(
                     imageUrl,
                     "instagram_${safeFilePart(shortcode)}_1.$extension",
@@ -264,19 +265,74 @@ class InstagramClient {
         }
     }
 
-    private fun extractPublicImageUrl(html: String): String {
+    private data class PublicImageCandidate(val url: String, val source: String)
+
+    /** Prefer post-specific full media fields; Open Graph is only a last resort. */
+    private fun extractPublicImage(html: String): PublicImageCandidate? {
+        val displayUrl = Regex("\"display_url\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
+            .find(html)?.groupValues?.get(1)?.let { unescapeJson(it) }.orEmpty()
+        if (isSafeCdnImage(displayUrl)) return PublicImageCandidate(displayUrl, "display_url")
+
+        val candidateArray = Regex("\"image_versions2\"\\s*:\\s*\\{\\s*\"candidates\"\\s*:\\s*\\[")
+            .find(html)
+        if (candidateArray != null) {
+            val open = candidateArray.range.last
+            val end = jsonArrayEnd(html, open)
+            if (end != null) {
+                val candidates = runCatching { JSONArray(html.substring(open, end + 1)) }.getOrNull()
+                var bestUrl = ""
+                var bestArea = -1L
+                if (candidates != null) {
+                    for (i in 0 until candidates.length()) {
+                        val item = candidates.optJSONObject(i) ?: continue
+                        val url = unescapeJson(item.optString("url"))
+                        if (!isSafeCdnImage(url)) continue
+                        val area = item.optLong("width", 0L).coerceAtLeast(0L) *
+                            item.optLong("height", 0L).coerceAtLeast(0L)
+                        if (area > bestArea) {
+                            bestArea = area
+                            bestUrl = url
+                        }
+                    }
+                }
+                if (bestUrl.isNotBlank()) return PublicImageCandidate(bestUrl, "image_versions2")
+            }
+        }
+
         val metaTags = Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(html)
         for (match in metaTags) {
             val tag = match.value
             val property = htmlAttribute(tag, "property") ?: htmlAttribute(tag, "name") ?: continue
-            if (property !in setOf("og:image", "og:image:url", "twitter:image")) continue
+            if (setOf("og:image", "og:image:url", "twitter:image").none { it.equals(property, ignoreCase = true) }) continue
             val content = htmlAttribute(tag, "content") ?: continue
             val url = unescapeJson(content)
-            if (isSafeCdnImage(url)) return url
+            if (isSafeCdnImage(url)) return PublicImageCandidate(url, "og:image")
         }
-        val displayUrl = Regex("\"display_url\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
-            .find(html)?.groupValues?.get(1)?.let { unescapeJson(it) }.orEmpty()
-        return displayUrl.takeIf { isSafeCdnImage(it) }.orEmpty()
+        return null
+    }
+
+    private fun jsonArrayEnd(text: String, start: Int): Int? {
+        var depth = 0
+        var inString = false
+        var escaped = false
+        for (i in start until text.length) {
+            val ch = text[i]
+            if (inString) {
+                if (escaped) escaped = false
+                else if (ch == '\\') escaped = true
+                else if (ch == '"') inString = false
+                continue
+            }
+            when (ch) {
+                '"' -> inString = true
+                '[' -> depth++
+                ']' -> {
+                    depth--
+                    if (depth == 0) return i
+                }
+            }
+        }
+        return null
     }
 
     private fun htmlAttribute(tag: String, name: String): String? {

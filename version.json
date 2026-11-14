@@ -1,6 +1,6 @@
 {
-  "version": "1.81",
-  "versionCode": 81,
+  "version": "1.82",
+  "versionCode": 82,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.81: adds a public Instagram post-image metadata fallback when the image resolver is unavailable, keeps Reels/video on their existing path, and reports image-source failures accurately."
+  "changelog": "IG SAVE 1.82: prefers the largest public Instagram photo rendition (image_versions2 candidates) and the full display URL over the often-cropped Open Graph preview, while keeping the Reel/video path unchanged."
 }

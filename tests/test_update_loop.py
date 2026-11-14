@@ -272,13 +272,13 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_81():
+def test_version_bumped_to_82():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 81" in gradle
-    assert 'versionName = "1.81"' in gradle
+    assert "versionCode = 82" in gradle
+    assert 'versionName = "1.82"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.81"
-    assert manifest["versionCode"] == 81
+    assert manifest["version"] == "1.82"
+    assert manifest["versionCode"] == 82
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +343,11 @@ def test_public_post_image_fallback_is_restricted_and_diagnostic():
     assert "resolvePublicPostImage(postUrl, shortcode, diag)" in prepare
     assert r'Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE)' in prepare
     assert 'setOf("og:image", "og:image:url", "twitter:image")' in prepare
+    extractor = prepare.split("private fun extractPublicImage(")[1].split("private fun htmlAttribute(")[0]
+    assert "image_versions2" in extractor
+    assert 'item.optLong("width", 0L)' in extractor
+    assert 'item.optLong("height", 0L)' in extractor
+    assert extractor.index('"display_url"') < extractor.index('"image_versions2"') < extractor.index('"og:image"')
     assert "isSafeCdnImage(url)" in prepare
     assert "MAX_POST_HTML_BYTES" in prepare
     diag = read(JAVA / "DownloadDiagnostics.kt")
