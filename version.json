@@ -1,6 +1,6 @@
 {
-  "version": "1.78",
-  "versionCode": 78,
+  "version": "1.79",
+  "versionCode": 79,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.78: after a confirmed download link is saved, the app removes its temporary focus overlay, checks whether Instagram's Copy link sheet is still present, and sends Back only if needed. It verifies the sheet closed and retries Back once if necessary."
+  "changelog": "IG SAVE 1.79: prevents one-tap mode from falling back to the previous saved URL if its accessibility service cannot take over, and cancels delayed share-sheet Back actions when a new bubble run starts. This avoids redownloading an old reel or closing a new share sheet."
 }

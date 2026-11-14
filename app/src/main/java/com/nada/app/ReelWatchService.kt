@@ -73,6 +73,8 @@ class ReelWatchService : AccessibilityService() {
     private var deadlineCallback: Runnable? = null
     private var focusView: View? = null
     private var focusDone = false
+    /** Invalidates deferred sheet-close callbacks if another bubble run starts. */
+    private var runGeneration = 0L
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -116,6 +118,9 @@ class ReelWatchService : AccessibilityService() {
     private fun takeTap(): Boolean {
         if (!Prefs.reelWatchOn(this)) return false
         if (running) return true
+        // Any new bubble request invalidates a deferred Back from an older run,
+        // even if this tap cannot be handled because Instagram is not active.
+        runGeneration++
         if (!instagramIsForeground()) return false
         running = true
         finished = false
@@ -563,41 +568,43 @@ class ReelWatchService : AccessibilityService() {
      * to Instagram, not the temporary accessibility window; verify and retry
      * once if Instagram leaves the sheet open.
      */
-    private fun dismissShareSheet(onComplete: () -> Unit) {
-        if (!shareTapped || !copyTapped) {
-            onComplete()
-            return
-        }
+    private fun dismissShareSheet() {
+        if (!shareTapped || !copyTapped) return
+        val generation = runGeneration
         val sendBack = {
             runCatching { performGlobalAction(GLOBAL_ACTION_BACK) }.getOrDefault(false)
         }
+        diag.note("share sheet close check queued after focus return")
         handler.postDelayed({
-            if (!isCopyControlVisible()) {
-                diag.note("share sheet already closed")
-                onComplete()
-                return@postDelayed
-            }
-            val acted = sendBack()
-            diag.note(
-                if (acted) "share sheet Back requested after focus return"
-                else "share sheet Back action failed",
-            )
-            handler.postDelayed({
-                if (isCopyControlVisible()) {
-                    diag.note("share sheet remained open; retrying Back once")
-                    sendBack()
-                    handler.postDelayed({
-                        diag.note(
-                            if (isCopyControlVisible()) "share sheet remained open after Back retry"
-                            else "share sheet closed after Back retry",
-                        )
-                        onComplete()
-                    }, SHEET_BACK_VERIFY_MS)
+            if (generation == runGeneration) {
+                if (!isCopyControlVisible()) {
+                    diag.note("share sheet already closed")
                 } else {
-                    diag.note("share sheet closed after Back")
-                    onComplete()
+                    val acted = sendBack()
+                    diag.note(
+                        if (acted) "share sheet Back requested after focus return"
+                        else "share sheet Back action failed",
+                    )
+                    handler.postDelayed({
+                        if (generation == runGeneration) {
+                            if (isCopyControlVisible()) {
+                                diag.note("share sheet remained open; retrying Back once")
+                                sendBack()
+                                handler.postDelayed({
+                                    if (generation == runGeneration) {
+                                        diag.note(
+                                            if (isCopyControlVisible()) "share sheet remained open after Back retry"
+                                            else "share sheet closed after Back retry",
+                                        )
+                                    }
+                                }, SHEET_BACK_VERIFY_MS)
+                            } else {
+                                diag.note("share sheet closed after Back")
+                            }
+                        }
+                    }, SHEET_BACK_VERIFY_MS)
                 }
-            }, SHEET_BACK_VERIFY_MS)
+            }
         }, SHEET_BACK_FOCUS_DELAY_MS)
     }
 
@@ -745,7 +752,8 @@ class ReelWatchService : AccessibilityService() {
         Prefs.setLastIgUrl(this, url)
         runCatching { QuickSaveService.start(this, url) }
             .onSuccess {
-                dismissShareSheet { persistDiagnostics("saved") }
+                dismissShareSheet()
+                persistDiagnostics("saved")
             }
             .onFailure {
                 failStage = "save_start"
