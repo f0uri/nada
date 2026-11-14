@@ -17,7 +17,7 @@
     <string name="save_channel">Downloads</string>
     <string name="save_working">Fetching the post…</string>
     <string name="save_stage_link">Reading the link…</string>
-    <string name="save_stage_video">Fetching the original video…</string>
+    <string name="save_stage_video">Fetching the original media…</string>
     <string name="save_stage_file">Saving to Downloads…</string>
     <string name="save_started">Saved</string>
     <string name="save_files">%1$d files in Downloads</string>

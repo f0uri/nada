@@ -1,5 +1,6 @@
 package com.nada.app
 
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -19,6 +20,8 @@ import java.util.concurrent.TimeUnit
 class QuickSaveFallback(
     private val client: OkHttpClient = defaultClient(),
 ) {
+    data class Image(val url: String, val mime: String, val extension: String, val width: Int, val height: Int)
+
     fun resolve(postUrl: String, diag: DownloadDiagnostics? = null): ListnrService.Video {
         val payload = JSONObject().put("url", postUrl).toString()
         val request = Request.Builder()
@@ -104,6 +107,80 @@ class QuickSaveFallback(
             throw InstagramClient.ApiException(502, "upstream")
         }
     }
+
+    /** Resolve only a photo format. Kept separate from resolve() so its video-only
+     * selection and highest-height contract remain untouched for existing Reels.
+     */
+    fun resolveImage(postUrl: String, diag: DownloadDiagnostics? = null): Image {
+        val payload = JSONObject().put("url", postUrl).toString()
+        val request = Request.Builder()
+            .url(ENDPOINT)
+            .header("accept", "*/*")
+            .header("content-type", "application/json")
+            .header("origin", "https://quicksave.my")
+            .header("referer", "https://quicksave.my/")
+            .header("user-agent", UA)
+            .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    diag?.quickSaveDetail = "HTTP ${response.code}"
+                    diag?.note("quicksave image HTTP ${response.code}")
+                    throw when (response.code) {
+                        404 -> InstagramClient.ApiException(404, "missing")
+                        429, 403 -> InstagramClient.ApiException(429, "rate")
+                        else -> InstagramClient.ApiException(502, "upstream")
+                    }
+                }
+                val json = runCatching { JSONObject(response.body?.string().orEmpty()) }
+                    .getOrElse {
+                        diag?.quickSaveDetail = "bad json"
+                        throw InstagramClient.ApiException(502, "upstream")
+                    }
+                val formats = json.optJSONArray("formats")
+                    ?: throw InstagramClient.ApiException(404, "empty")
+                var best: Image? = null
+                for (i in 0 until formats.length()) {
+                    val f = formats.optJSONObject(i) ?: continue
+                    if (!"image".equals(f.optString("type").trim(), ignoreCase = true)) continue
+                    val url = f.optString("url").trim().replace("&amp;", "&")
+                    if (!isAllowedCdn(url)) continue
+                    val mime = f.optString("mime_type").trim().lowercase().let {
+                        if (it in setOf("image/jpeg", "image/png", "image/webp")) it else "image/jpeg"
+                    }
+                    val extension = when (mime) {
+                        "image/png" -> "png"
+                        "image/webp" -> "webp"
+                        else -> "jpg"
+                    }
+                    val width = f.optInt("width", 0)
+                    val height = f.optInt("height", 0)
+                    val candidate = Image(url, mime, extension, width, height)
+                    if (best == null || width.toLong() * height > best.width.toLong() * best.height) best = candidate
+                }
+                val image = best ?: run {
+                    diag?.quickSaveDetail = "no image format"
+                    diag?.note("quicksave no image format")
+                    throw InstagramClient.ApiException(404, "empty")
+                }
+                diag?.quickSaveDetail = "HTTP ${response.code}, image=${image.width}x${image.height}"
+                diag?.note("quicksave image ok ${image.width}x${image.height}")
+                return image
+            }
+        } catch (ex: InstagramClient.ApiException) {
+            throw ex
+        } catch (ex: IOException) {
+            diag?.quickSaveDetail = DownloadDiagnostics.classify(ex)
+            throw InstagramClient.ApiException(502, "network")
+        }
+    }
+
+    private fun isAllowedCdn(url: String): Boolean = runCatching {
+        val parsed = url.toHttpUrlOrNull() ?: return false
+        parsed.isHttps && listOf("cdninstagram.com", "fbcdn.net", "cdninstagram.net", "fbsbx.com")
+            .any { parsed.host == it || parsed.host.endsWith(".$it") }
+    }.getOrDefault(false)
 
     companion object {
         const val ENDPOINT = "https://quicksave.my/api/info"

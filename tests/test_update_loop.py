@@ -272,13 +272,13 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_79():
+def test_version_bumped_to_80():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 79" in gradle
-    assert 'versionName = "1.79"' in gradle
+    assert "versionCode = 80" in gradle
+    assert 'versionName = "1.80"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.79"
-    assert manifest["versionCode"] == 79
+    assert manifest["version"] == "1.80"
+    assert manifest["versionCode"] == 80
 
 
 # ---------------------------------------------------------------------------
@@ -311,6 +311,24 @@ def test_quicksave_fallback_when_listnr_cannot_find_the_reel():
     assert 'quickSaveDetail = "HTTP ${response.code}"' in qs
     assert 'quickSaveDetail = kind' in qs
     assert 'quickSaveDetail = "no video format"' in qs
+
+
+def test_photo_post_fallback_is_image_only_and_keeps_video_contract():
+    qs = read(JAVA / "QuickSaveFallback.kt")
+    assert "fun resolveImage(" in qs
+    assert '"image".equals(f.optString("type").trim(), ignoreCase = true)' in qs
+    assert '"video".equals(f.optString("type").trim(), ignoreCase = true)' in qs
+    assert "isAllowedCdn(url)" in qs
+    assert '"image/png"' in qs and '"image/webp"' in qs
+    ic = read(JAVA / "InstagramClient.kt")
+    assert "private fun prepareImageSave(" in ic
+    assert '"https://www.instagram.com/p/$shortcode/"' in ic
+    assert '"photo"' in ic and '.${image.extension}' in ic
+    # Existing video save naming/type stays explicit and unchanged.
+    assert '"video/mp4"' in ic
+    service = read(JAVA / "QuickSaveService.kt")
+    assert "writeRemote(file)" in service
+    assert "storeBytes(body.byteStream(), file.name, file.mime)" in service
 
 
 # ---------------------------------------------------------------------------
