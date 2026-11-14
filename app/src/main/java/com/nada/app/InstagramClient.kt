@@ -12,6 +12,9 @@ import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.URLDecoder
 import java.net.URLEncoder
+import java.nio.ByteBuffer
+import java.nio.CharBuffer
+import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Locale
@@ -473,9 +476,12 @@ class InstagramClient {
             }
         }
         val resolved = user ?: profileUserFromHtml(username)
-        if (user != null && extractUserBio(resolved).isBlank()) {
+        if (user != null && (extractUserBio(resolved).isBlank() ||
+                resolved.optString("full_name").isBlank() ||
+                resolved.optString("id").isBlank() && resolved.optString("pk").isBlank())) {
             runCatching { profileUserFromHtml(username) }.getOrNull()?.let { mergeProfileUser(resolved, it) }
         }
+        resolved.put("full_name", normalizeProfileText(resolved.optString("full_name")))
         resolved.put("biography", composeProfileBio(resolved))
         return attachPosts(packProfile(resolved), resolved)
     }
@@ -530,12 +536,17 @@ class InstagramClient {
             .header("x-ig-app-id", if (mobile) IG_ANDROID_APP_ID else APP_ID)
             .header("x-csrftoken", token)
             .header("x-ig-www-claim", "0")
+            .header("x-asbd-id", "359341")
             .header("x-requested-with", "XMLHttpRequest")
             .header("referer", referer)
             .build()
-        return client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return@use null
-            runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
+            }
+        } catch (_: IOException) {
+            null
         }
     }
 
@@ -557,7 +568,7 @@ class InstagramClient {
         return JSONObject()
             .put("ok", true)
             .put("username", user.optString("username"))
-            .put("name", user.optString("full_name"))
+            .put("name", normalizeProfileText(user.optString("full_name")))
             .put("bio", composeProfileBio(user))
             .put("private", user.optBoolean("is_private"))
             .put("followers", followers)
@@ -588,10 +599,13 @@ class InstagramClient {
                 append("count=18")
                 if (!cursor.isNullOrBlank()) append("&max_id=").append(URLEncoder.encode(cursor, "UTF-8"))
             }
-            val data = igGet("https://www.instagram.com/api/v1/feed/user/$userId/?$q", "https://www.instagram.com/")
-            val items = data?.optJSONArray("items") ?: JSONArray()
+            val profileUrl = "https://www.instagram.com/${user.optString("username")}/"
+            val data = igGet("https://www.instagram.com/api/v1/feed/user/$userId/?$q", profileUrl)
+            val payload = data?.optJSONObject("data") ?: data
+            val feed = payload?.optJSONObject("user") ?: payload
+            val items = feed?.optJSONArray("items") ?: JSONArray()
             for (i in 0 until items.length()) packGridItem(items.optJSONObject(i) ?: continue)?.let { posts.put(it) }
-            if (data?.optBoolean("more_available") == true) next = data.optString("next_max_id")
+            if (feed?.optBoolean("more_available") == true) next = feed.optString("next_max_id")
         }
         if (posts.length() == 0) {
             val edges = user.optJSONObject("edge_owner_to_timeline_media")?.optJSONArray("edges") ?: JSONArray()
@@ -638,6 +652,8 @@ class InstagramClient {
             .url("https://www.instagram.com/$username/")
             .header("User-Agent", UA)
             .header("x-ig-app-id", APP_ID)
+            .header("x-asbd-id", "359341")
+            .header("Accept-Language", "ar,en-US;q=0.8,en;q=0.6")
             .header("referer", "https://www.instagram.com/")
             .build()
         client.newCall(request).execute().use { response ->
@@ -645,22 +661,25 @@ class InstagramClient {
             if (!response.isSuccessful) throw ApiException(404, "missing")
             val raw = response.body?.string().orEmpty()
             val html = decodeEntities(raw)
-            val pic = Regex("""property="og:image" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
-            val title = Regex("""property="og:title" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
-            val desc = Regex("""property="og:description" content="([^"]+)"""").find(html)?.groupValues?.get(1).orEmpty()
-            val hd = Regex(""""profile_pic_url_hd":"((?:\\.|[^"\\])*)"""").find(raw)?.groupValues?.get(1)
-                ?.let { unescapeJson(it) }.orEmpty()
-            val userId = Regex(""""profile_id":"(\d+)"""").find(raw)?.groupValues?.get(1).orEmpty()
-            if (pic.isBlank() && hd.isBlank() && title.isBlank()) throw ApiException(404, "missing")
-            val name = decodeEntities(title).replace(Regex("""\s*[•·].*$"""), "")
+            val pic = profileMetaContent(html, "og:image")
+            val title = profileMetaContent(html, "og:title")
+            val desc = profileMetaContent(html, "og:description")
+            val hd = Regex("\"profile_pic_url_hd\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
+                .find(raw)?.groupValues?.get(1)?.let { normalizeProfileText(it) }.orEmpty()
+            val userId = extractHtmlProfileUserId(raw)
+            val bio = extractHtmlProfileBio(raw, desc)
+            if (pic.isBlank() && hd.isBlank() && title.isBlank() && bio.isBlank() && userId.isBlank()) {
+                throw ApiException(404, "missing")
+            }
+            val name = normalizeProfileText(title)
+                .replace(Regex("""\s*[•·].*$"""), "")
                 .replace(Regex("""\s*\(@?[^)]*\)\s*"""), "")
                 .replace("Instagram photos and videos", "", ignoreCase = true).trim().ifBlank { username }
+            val normalizedDesc = normalizeProfileText(desc)
             val stats = listOf("Followers", "Following", "Posts").map { label ->
                 Regex("""([\d.,]+\s*[KMB]?)\s*$label""", RegexOption.IGNORE_CASE)
-                    .find(decodeEntities(desc))?.groupValues?.get(1)?.let { parseCompactNumber(it) }
+                    .find(normalizedDesc)?.groupValues?.get(1)?.let { parseCompactNumber(it) }
             }
-            val bio = Regex(""""biography":"((?:\\.|[^"\\])*)"""").find(raw)?.groupValues?.get(1)
-                ?.let { unescapeJson(it) }.orEmpty()
             return JSONObject()
                 .put("username", username)
                 .put("full_name", name)
@@ -672,6 +691,54 @@ class InstagramClient {
                 .put("id", userId)
                 .put("pk", userId)
         }
+    }
+
+    private fun profileMetaContent(html: String, propertyName: String): String {
+        val tags = Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(html)
+        for (match in tags) {
+            val tag = match.value
+            val property = htmlAttribute(tag, "property") ?: htmlAttribute(tag, "name") ?: continue
+            if (!property.equals(propertyName, ignoreCase = true)) continue
+            return htmlAttribute(tag, "content")?.let { normalizeProfileText(it) }.orEmpty()
+        }
+        return ""
+    }
+
+    private fun extractHtmlProfileUserId(raw: String): String {
+        val patterns = listOf(
+            Regex("\"profile_id\"\\s*:\\s*\"?(\\d+)\"?"),
+            Regex("\"logging_page_id\"\\s*:\\s*\"profilePage_(\\d+)\""),
+            Regex("profilePage_(\\d+)"),
+            Regex("\"user_id\"\\s*:\\s*\"?(\\d+)\"?"),
+            Regex("\"pk\"\\s*:\\s*\"?(\\d{5,})\"?"),
+            Regex("\"username\"\\s*:\\s*\"[^\"]+\"\\s*,\\s*\"id\"\\s*:\\s*\"?(\\d{5,})\"?"),
+        )
+        return patterns.firstNotNullOfOrNull { it.find(raw)?.groupValues?.get(1) }.orEmpty()
+    }
+
+    private fun extractHtmlProfileBio(raw: String, description: String): String {
+        for (key in listOf("biography", "raw_text")) {
+            val value = Regex("\"$key\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
+                .find(raw)?.groupValues?.get(1)?.let { normalizeProfileText(it) }.orEmpty()
+            if (value.isNotBlank()) return value
+        }
+        return extractOgProfileBio(description)
+    }
+
+    private fun extractOgProfileBio(raw: String): String {
+        val text = normalizeProfileText(raw).trim()
+        if (text.isBlank()) return ""
+        val quoted = Regex("""on Instagram:\s*["“](.*)["”]\s*$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(text)?.groupValues?.get(1)?.trim().orEmpty()
+        if (quoted.isNotBlank()) return quoted
+        val tail = Regex("""Posts\s*[-–—]\s*(.+)$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+            .find(text)?.groupValues?.get(1)?.trim().orEmpty()
+        val candidate = tail.ifBlank { text }
+        if (candidate.contains("See Instagram photos and videos", ignoreCase = true) ||
+            candidate.contains("Create an account or log in", ignoreCase = true) ||
+            Regex("""\d[\d.,]*\s*[KMB]?\s*Followers""", RegexOption.IGNORE_CASE).containsMatchIn(candidate) ||
+            Regex(""".+\(@?[\w.]+\)\s*$""").matches(candidate)) return ""
+        return candidate
     }
 
     private fun mergeProfileUser(user: JSONObject, extra: JSONObject) {
@@ -687,11 +754,14 @@ class InstagramClient {
 
     private fun extractUserBio(user: JSONObject): String {
         val value = user.opt("biography")
-        return when (value) {
-            is String -> unescapeJson(value)
-            is JSONObject -> unescapeJson(value.optString("text").ifBlank { value.optString("raw_text") })
+        val biography = when (value) {
+            is String -> normalizeProfileText(value)
+            is JSONObject -> normalizeProfileText(value.optString("text").ifBlank { value.optString("raw_text") })
             else -> ""
         }
+        if (biography.isNotBlank()) return biography
+        val entities = user.optJSONObject("biography_with_entities")
+        return normalizeProfileText(entities?.optString("raw_text").orEmpty())
     }
 
     private fun composeProfileBio(user: JSONObject): String {
@@ -722,9 +792,47 @@ class InstagramClient {
         }).trim()
     }
 
-    private fun decodeEntities(value: String): String = value
-        .replace("&amp;", "&").replace("&quot;", "\"").replace("&#039;", "'")
-        .replace("&apos;", "'").replace("&lt;", "<").replace("&gt;", ">")
+    private fun normalizeProfileText(raw: String): String {
+        val decoded = decodeEntities(unescapeJson(raw))
+        return Regex("\\S+").replace(decoded) { match ->
+            val token = match.value
+            if (token.any { it in "ÃÂðâØÙŸ" }) repairMojibakeToken(token) ?: token else token
+        }.trim()
+    }
+
+    private fun repairMojibakeToken(token: String): String? {
+        val bytes = runCatching {
+            val encoded = java.nio.charset.Charset.forName("windows-1252").newEncoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .encode(CharBuffer.wrap(token))
+            ByteArray(encoded.remaining()).also { encoded.get(it) }
+        }.getOrNull() ?: return null
+        val repaired = runCatching {
+            StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(bytes)).toString()
+        }.getOrNull() ?: return null
+        return repaired.takeIf { it != token && '\uFFFD' !in it }
+    }
+
+    private fun decodeEntities(value: String): String {
+        val basic = value.replace("&amp;", "&").replace("&quot;", "\"").replace("&#039;", "'")
+            .replace("&apos;", "'").replace("&lt;", "<").replace("&gt;", ">")
+            .replace("&nbsp;", " ").replace("&bull;", "•").replace("&mdash;", "—")
+            .replace("&ndash;", "–").replace("&rsquo;", "’").replace("&lsquo;", "‘")
+            .replace("&rdquo;", "”").replace("&ldquo;", "“")
+        return Regex("&#(?:x([0-9a-fA-F]{1,6})|([0-9]{1,7}));?", RegexOption.IGNORE_CASE).replace(basic) { match ->
+            val codePoint = match.groupValues[1].takeIf { it.isNotBlank() }?.toIntOrNull(16)
+                ?: match.groupValues[2].toIntOrNull()
+            if (codePoint != null && Character.isValidCodePoint(codePoint) && codePoint !in 0xD800..0xDFFF) {
+                String(Character.toChars(codePoint))
+            } else {
+                match.value
+            }
+        }
+    }
 
     private fun hostOk(url: String): Boolean {
         return try {

@@ -1,6 +1,6 @@
 {
-  "version": "1.82",
-  "versionCode": 82,
+  "version": "1.83",
+  "versionCode": 83,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.82: prefers the largest public Instagram photo rendition (image_versions2 candidates) and the full display URL over the often-cropped Open Graph preview, while keeping the Reel/video path unchanged."
+  "changelog": "IG SAVE 1.83: improves public profile lookup for bios and post grids, recovers profile IDs from Instagram page metadata, and decodes numeric HTML entities and common mojibake in names and bios."
 }
