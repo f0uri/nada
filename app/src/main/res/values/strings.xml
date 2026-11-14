@@ -17,7 +17,7 @@
     <string name="save_channel">التنزيلات</string>
     <string name="save_working">جاري جلب المنشور…</string>
     <string name="save_stage_link">نقرأ الرابط…</string>
-    <string name="save_stage_video">نجلب الفيديو الأصلي…</string>
+    <string name="save_stage_video">نجلب الوسائط الأصلية…</string>
     <string name="save_stage_file">نحفظ في التنزيلات…</string>
     <string name="save_started">تم الحفظ</string>
     <string name="save_files">%1$d ملف في التنزيلات</string>

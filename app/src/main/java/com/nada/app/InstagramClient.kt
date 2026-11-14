@@ -119,7 +119,15 @@ class InstagramClient {
     }
 
     fun prepareSave(rawUrl: String, diag: DownloadDiagnostics? = null): SaveBatch {
-        val post = resolve(rawUrl, diag)
+        val post = try {
+            resolve(rawUrl, diag)
+        } catch (videoError: ApiException) {
+            try {
+                return prepareImageSave(rawUrl, diag)
+            } catch (_: Exception) {
+                throw videoError
+            }
+        }
         val media = post.optJSONArray("media") ?: JSONArray()
         val code = post.optString("shortcode").ifBlank { "post" }
         val files = mutableListOf<SaveFile>()
@@ -128,10 +136,25 @@ class InstagramClient {
             val token = item.optString("file")
             if (token.isBlank()) continue
             val remote = unsignUrl(token)
-            files += SaveFile(remote, "instagram_${safeFilePart(code)}_${i + 1}.mp4", "video/mp4")
+            val ext = item.optString("ext").ifBlank { "mp4" }
+            val mime = item.optString("mime").ifBlank { "video/mp4" }
+            files += SaveFile(remote, "instagram_${safeFilePart(code)}_${i + 1}.$ext", mime)
         }
-        if (files.isEmpty()) throw ApiException(404, "empty")
-        return SaveBatch("instagram", post.optString("kind"), files)
+        if (files.isEmpty()) return prepareImageSave(rawUrl, diag)
+        val kind = if (files.any { it.mime.startsWith("image/") }) "photo" else post.optString("kind")
+        return SaveBatch("instagram", kind, files)
+    }
+
+    private fun prepareImageSave(rawUrl: String, diag: DownloadDiagnostics?): SaveBatch {
+        val shortcode = parseShortcode(rawUrl)
+        val image = quickSave.resolveImage("https://www.instagram.com/p/$shortcode/", diag)
+        if (!hostOk(image.url)) throw ApiException(400, "host")
+        diag?.viaQuickSave = true
+        return SaveBatch(
+            "instagram",
+            "photo",
+            listOf(SaveFile(image.url, "instagram_${safeFilePart(shortcode)}_1.${image.extension}", image.mime)),
+        )
     }
 
     fun openMedia(token: String): MediaStream = pullFile(unsignUrl(token))

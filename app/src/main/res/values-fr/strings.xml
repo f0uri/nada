@@ -17,7 +17,7 @@
     <string name="save_channel">Téléchargements</string>
     <string name="save_working">Récupération de la publication…</string>
     <string name="save_stage_link">Lecture du lien…</string>
-    <string name="save_stage_video">Récupération de la vidéo originale…</string>
+    <string name="save_stage_video">Récupération du média original…</string>
     <string name="save_stage_file">Enregistrement dans Téléchargements…</string>
     <string name="save_started">Enregistré</string>
     <string name="save_files">%1$d fichiers dans Téléchargements</string>

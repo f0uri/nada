@@ -1,6 +1,6 @@
 {
-  "version": "1.79",
-  "versionCode": 79,
+  "version": "1.80",
+  "versionCode": 80,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.79: prevents one-tap mode from falling back to the previous saved URL if its accessibility service cannot take over, and cancels delayed share-sheet Back actions when a new bubble run starts. This avoids redownloading an old reel or closing a new share sheet."
+  "changelog": "IG SAVE 1.80: adds fallback downloading for Instagram photo posts, including image media, while preserving the existing Reel/video resolution and save flow."
 }
