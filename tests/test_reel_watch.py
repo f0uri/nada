@@ -300,7 +300,7 @@ def test_copy_failure_reports_its_stage():
 def test_sheet_closes_only_after_fresh_clip_is_confirmed():
     """Do not dismiss Share before Instagram has written the new link."""
     src = read(JAVA / "ReelWatchService.kt")
-    read_clip = _span(src, "private fun readClipboard()")
+    read_clip = _span(src, "private fun readClipboard(")
     dismiss = _span(src, "private fun dismissShareSheet()")
     assert "dismissShareSheet()" in read_clip
     assert "performGlobalAction(GLOBAL_ACTION_BACK)" in dismiss
@@ -316,7 +316,7 @@ def test_every_terminal_path_derives_a_stage():
     exercised on the JVM below.
     """
     src = read(JAVA / "ReelWatchService.kt")
-    read_clip = _span(src, "private fun readClipboard()")
+    read_clip = _span(src, "private fun readClipboard(")
     toast = _span(src, "private fun needLinkToast()")
     for span in (read_clip, toast):
         assert "BubbleDiagnostics.stageFor(phase, copyClickFailed)" in span
@@ -658,23 +658,30 @@ def test_stale_clipboard_cannot_download_the_wrong_reel():
     assert copy_branch.index("watchClipboardForCopy()") < copy_branch.index("click(copy.node")
     assert "stopClipboardWatch()" in copy_branch
     assert "copyTappedAt = System.currentTimeMillis()" in copy_branch
-    assert "clipboardConfirmDeadline = copyTappedAt + CLIPBOARD_CONFIRM_BUDGET_MS" in copy_branch
+    assert "clipboardConfirmDeadline = System.currentTimeMillis() + CLIPBOARD_CONFIRM_BUDGET_MS" in copy_branch
+    assert copy_branch.index("copyTappedAt = System.currentTimeMillis()") < copy_branch.index("click(copy.node")
     assert "confirmCopiedLink()" in copy_branch
     confirm = _span(src, "private fun confirmCopiedLink()")
-    assert "hasFreshClipboardSignal()" in confirm
+    assert "withFocus { hasFocus ->" in confirm
+    assert confirm.index("withFocus") < confirm.index("hasFreshClipboardSignal()")
+    assert "hasFocus && hasFreshClipboardSignal()" in confirm
+    assert "readClipboard(clipboardFocusHeld = true)" in confirm
     assert "CLIPBOARD_POLL_MS" in confirm
     assert "clipboard did not refresh" in confirm
     assert 'private const val CLIPBOARD_CONFIRM_BUDGET_MS = 5000L' in src
     assert 'private const val CLIPBOARD_POLL_MS = 250L' in src
-    read_clip = _span(src, "private fun readClipboard()")
+    read_clip = _span(src, "private fun readClipboard(")
+    assert "clipboardFocusHeld: Boolean = false" in read_clip
     assert 'if (!copyTapped)' in read_clip
     assert 'clipboard ignored: Copy action not confirmed' in read_clip
+    assert 'if (clipboardFocusHeld)' in read_clip
     assert "clipboardChangedAfterCopy" in src
     assert "addPrimaryClipChangedListener" in src
     assert "removePrimaryClipChangedListener" in src
-    assert "return stamped != 0L && stamped + CLIP_SKEW_MS >= copyTappedAt" in src
+    assert "return stamped != 0L && stamped >= copyTappedAt" in src
     assert "val fresh = clipboardChangedAfterCopy ||" in src
-    assert "stamped + CLIP_SKEW_MS >= copyTappedAt" in src
+    assert "stamped != 0L && stamped >= copyTappedAt" in src
+    assert "CLIP_SKEW_MS" not in src
     assert "if (!fresh)" in src
     assert 'clipboard not fresh after Copy tap' in src
 
@@ -688,6 +695,10 @@ def test_clipboard_focus_borrow_uses_accessibility_overlay():
     assert "FLAG_NOT_FOCUSABLE" not in src
     assert "addOnWindowFocusChangeListener" in src
     assert "FOCUS_TIMEOUT_MS" in src
+    focus = _span(src, "private fun withFocus(")
+    assert "block: (Boolean) -> Unit" in focus
+    assert "settle(true)" in focus
+    assert "settle(runCatching { view.hasWindowFocus()" in focus
     # The overlay is always removed again.
     assert "removeView(view)" in src
 

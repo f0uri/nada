@@ -376,16 +376,19 @@ class ReelWatchService : AccessibilityService() {
                     return
                 }
                 watchClipboardForCopy()
+                // Capture the cutoff immediately before the action; Instagram can
+                // update the clipboard synchronously inside ACTION_CLICK.
+                copyTappedAt = System.currentTimeMillis()
                 if (!click(copy.node, allowResolver = true)) {
                     stopClipboardWatch()
+                    copyTappedAt = 0L
                     copyClickFailed = true
                     retryOrGiveUp()
                     return
                 }
                 copyTapped = true
                 diag.copyTapped = true
-                copyTappedAt = System.currentTimeMillis()
-                clipboardConfirmDeadline = copyTappedAt + CLIPBOARD_CONFIRM_BUDGET_MS
+                clipboardConfirmDeadline = System.currentTimeMillis() + CLIPBOARD_CONFIRM_BUDGET_MS
                 // Clipboard updates can arrive after Instagram shows its
                 // "Copied" toast. Poll the freshness signal for up to 5 s;
                 // never retry the click or close the sheet while waiting.
@@ -468,22 +471,30 @@ class ReelWatchService : AccessibilityService() {
         return false
     }
 
-    /** Wait for Instagram's asynchronous clipboard write, bounded to 5 s. */
+    /**
+     * Poll for Instagram's asynchronous clipboard write, bounded to 5 s.
+     * Android 10+ can hide clipboard data/metadata while Instagram owns focus,
+     * so every freshness probe must run inside our temporary focus window.
+     */
     private fun confirmCopiedLink() {
         if (finished || clipboardTried || !copyTapped) return
-        if (hasFreshClipboardSignal()) {
-            diag.note("fresh clipboard signal confirmed")
-            readClipboard()
-            return
+        withFocus { hasFocus ->
+            if (finished || clipboardTried || !copyTapped) return@withFocus
+            if (hasFocus && hasFreshClipboardSignal()) {
+                diag.note("fresh clipboard signal confirmed while focused")
+                readClipboard(clipboardFocusHeld = true)
+                return@withFocus
+            }
+            if (!hasFocus) diag.note("clipboard freshness probe did not get window focus")
+            if (System.currentTimeMillis() < clipboardConfirmDeadline) {
+                handler.postDelayed({ confirmCopiedLink() }, CLIPBOARD_POLL_MS)
+                return@withFocus
+            }
+            failStage = "copy_stale"
+            diag.note("Copy acted but clipboard did not refresh")
+            stopClipboardWatch()
+            needLink()
         }
-        if (System.currentTimeMillis() < clipboardConfirmDeadline) {
-            handler.postDelayed({ confirmCopiedLink() }, CLIPBOARD_POLL_MS)
-            return
-        }
-        failStage = "copy_stale"
-        diag.note("Copy acted but clipboard did not refresh")
-        stopClipboardWatch()
-        needLink()
     }
 
     /** Metadata-only freshness probe; never reads or logs clipboard text. */
@@ -491,14 +502,14 @@ class ReelWatchService : AccessibilityService() {
         if (clipboardChangedAfterCopy) return true
         val manager = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
         val stamped = runCatching { manager.primaryClip?.description?.timestamp ?: 0L }.getOrDefault(0L)
-        return stamped != 0L && stamped + CLIP_SKEW_MS >= copyTappedAt
+        return stamped != 0L && stamped >= copyTappedAt
     }
 
     /**
      * Terminal step, reached only after a fresh copy signal (or a non-copy
      * failure). Saves the current link or shows the single short toast.
      */
-    private fun readClipboard() {
+    private fun readClipboard(clipboardFocusHeld: Boolean = false) {
         if (finished || clipboardTried) return
         deadlineCallback?.let { handler.removeCallbacks(it) }
         deadlineCallback = null
@@ -523,10 +534,17 @@ class ReelWatchService : AccessibilityService() {
             save(link)
             return
         }
+        if (clipboardFocusHeld) {
+            stopClipboardWatch()
+            failStage = "copy_stale"
+            diag.note("fresh clipboard signal contained no usable reel URL")
+            needLink()
+            return
+        }
         // Android 10+ only lets the focused uid read the clipboard, so borrow
         // focus for a moment with a 1x1 transparent accessibility overlay.
-        withFocus {
-            val second = reelFrom(clipText())
+        withFocus { hasFocus ->
+            val second = if (hasFocus) reelFrom(clipText()) else ""
             stopClipboardWatch()
             if (second.isNotBlank()) {
                 dismissShareSheet()
@@ -534,7 +552,7 @@ class ReelWatchService : AccessibilityService() {
             } else {
                 if (copyTapped) {
                     failStage = "copy_stale"
-                    diag.note("Copy acted but clipboard did not refresh")
+                    diag.note(if (hasFocus) "Copy acted but clipboard did not refresh" else "clipboard read did not get window focus")
                 }
                 needLink()
             }
@@ -585,7 +603,7 @@ class ReelWatchService : AccessibilityService() {
             if (copyTapped) {
                 val stamped = runCatching { clip.description?.timestamp ?: 0L }.getOrDefault(0L)
                 val fresh = clipboardChangedAfterCopy ||
-                    (stamped != 0L && stamped + CLIP_SKEW_MS >= copyTappedAt)
+                    (stamped != 0L && stamped >= copyTappedAt)
                 if (!fresh) {
                     diag.note("clipboard not fresh after Copy tap")
                     return@runCatching ""
@@ -606,11 +624,11 @@ class ReelWatchService : AccessibilityService() {
      * focused window, runs [block] once, then removes it and hands focus back.
      * TYPE_ACCESSIBILITY_OVERLAY needs no extra permission for this service.
      */
-    private fun withFocus(block: () -> Unit) {
+    private fun withFocus(block: (Boolean) -> Unit) {
         if (finished) return
         val wm = getSystemService(WINDOW_SERVICE) as? WindowManager
         if (wm == null) {
-            block()
+            block(false)
             return
         }
         val view = View(this).apply {
@@ -630,23 +648,23 @@ class ReelWatchService : AccessibilityService() {
             title = "NadaClipboardFocus"
         }
         focusDone = false
-        val settle = {
+        val settle: (Boolean) -> Unit = { hasFocus ->
             if (!focusDone) {
                 focusDone = true
-                if (!finished) block()
+                if (!finished) block(hasFocus)
                 dropFocusWindow()
             }
         }
         val added = runCatching { wm.addView(view, params) }.isSuccess
         if (!added) {
-            block()
+            block(false)
             return
         }
         focusView = view
         view.viewTreeObserver.addOnWindowFocusChangeListener { hasFocus ->
-            if (hasFocus) handler.post { settle() }
+            if (hasFocus) handler.post { settle(true) }
         }
-        handler.postDelayed({ settle() }, FOCUS_TIMEOUT_MS)
+        handler.postDelayed({ settle(runCatching { view.hasWindowFocus() }.getOrDefault(false)) }, FOCUS_TIMEOUT_MS)
     }
 
     private fun dropFocusWindow() {
@@ -747,7 +765,6 @@ class ReelWatchService : AccessibilityService() {
         private const val COPY_SETTLE_MS = 500L
         private const val CLIPBOARD_POLL_MS = 250L
         private const val CLIPBOARD_CONFIRM_BUDGET_MS = 5000L
-        private const val CLIP_SKEW_MS = 1500L
         private const val FOCUS_TIMEOUT_MS = 420L
 
         @Volatile
