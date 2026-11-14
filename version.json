@@ -1,6 +1,6 @@
 {
-  "version": "1.75",
-  "versionCode": 75,
+  "version": "1.76",
+  "versionCode": 76,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.75: the bubble accepts a reel URL only after Copy causes a fresh clipboard write or Android reports a fresh clipboard timestamp. The share sheet stays open until that fresh URL is confirmed, preventing an old reel link from being downloaded when Copy fails."
+  "changelog": "IG SAVE 1.76: after Copy is clicked, the app waits up to 5 seconds for Instagram's clipboard write instead of giving up after about one second. The share sheet remains open while waiting; the app still refuses to download an unconfirmed previous link."
 }
