@@ -530,7 +530,6 @@ class ReelWatchService : AccessibilityService() {
         val link = reelFrom(clipText())
         if (link.isNotBlank()) {
             stopClipboardWatch()
-            dismissShareSheet()
             save(link)
             return
         }
@@ -547,7 +546,6 @@ class ReelWatchService : AccessibilityService() {
             val second = if (hasFocus) reelFrom(clipText()) else ""
             stopClipboardWatch()
             if (second.isNotBlank()) {
-                dismissShareSheet()
                 save(second)
             } else {
                 if (copyTapped) {
@@ -559,11 +557,74 @@ class ReelWatchService : AccessibilityService() {
         }
     }
 
-    /** Dismiss Instagram's sheet only after a fresh copied URL is confirmed. */
-    private fun dismissShareSheet() {
-        if (shareTapped && copyTapped) {
-            runCatching { performGlobalAction(GLOBAL_ACTION_BACK) }
+    /**
+     * After a successful save, close the share sheet only if its Copy action is
+     * still visible. Run after the focus overlay has been removed so Back goes
+     * to Instagram, not the temporary accessibility window; verify and retry
+     * once if Instagram leaves the sheet open.
+     */
+    private fun dismissShareSheet(onComplete: () -> Unit) {
+        if (!shareTapped || !copyTapped) {
+            onComplete()
+            return
         }
+        val sendBack = {
+            runCatching { performGlobalAction(GLOBAL_ACTION_BACK) }.getOrDefault(false)
+        }
+        handler.postDelayed({
+            if (!isCopyControlVisible()) {
+                diag.note("share sheet already closed")
+                onComplete()
+                return@postDelayed
+            }
+            val acted = sendBack()
+            diag.note(
+                if (acted) "share sheet Back requested after focus return"
+                else "share sheet Back action failed",
+            )
+            handler.postDelayed({
+                if (isCopyControlVisible()) {
+                    diag.note("share sheet remained open; retrying Back once")
+                    sendBack()
+                    handler.postDelayed({
+                        diag.note(
+                            if (isCopyControlVisible()) "share sheet remained open after Back retry"
+                            else "share sheet closed after Back retry",
+                        )
+                        onComplete()
+                    }, SHEET_BACK_VERIFY_MS)
+                } else {
+                    diag.note("share sheet closed after Back")
+                    onComplete()
+                }
+            }, SHEET_BACK_VERIFY_MS)
+        }, SHEET_BACK_FOCUS_DELAY_MS)
+    }
+
+    /** Query only approved share-sheet windows; never tap or inspect other apps. */
+    private fun isCopyControlVisible(): Boolean {
+        val roots = ArrayList<AccessibilityNodeInfo>(MAX_ROOTS)
+        val active = runCatching { rootInActiveWindow }.getOrNull()
+        if (active != null && ShareNodes.isSearchablePackage(active.packageName?.toString(), phase)) {
+            roots += active
+        }
+        val available = runCatching { windows }.getOrDefault(emptyList())
+        for (window in available) {
+            val root = runCatching { window.root }.getOrNull() ?: continue
+            if (!ShareNodes.isSearchablePackage(root.packageName?.toString(), phase)) continue
+            if (roots.size >= MAX_ROOTS) break
+            if (roots.none { it == root }) roots += root
+        }
+        for (root in roots) {
+            for (query in ShareNodes.COPY_QUERIES) {
+                val hits = runCatching { root.findAccessibilityNodeInfosByText(query) }.getOrNull().orEmpty()
+                if (hits.any { node ->
+                    runCatching { node.isVisibleToUser }.getOrDefault(false) &&
+                        ShareNodes.copyScore(textOf(node), descOf(node), idOf(node)) >= 3
+                }) return true
+            }
+        }
+        return false
     }
 
     /** Watch for a clipboard write specifically caused by this Copy action. */
@@ -683,7 +744,9 @@ class ReelWatchService : AccessibilityService() {
         dropFocusWindow()
         Prefs.setLastIgUrl(this, url)
         runCatching { QuickSaveService.start(this, url) }
-            .onSuccess { persistDiagnostics("saved") }
+            .onSuccess {
+                dismissShareSheet { persistDiagnostics("saved") }
+            }
             .onFailure {
                 failStage = "save_start"
                 needLinkToast()
@@ -766,6 +829,8 @@ class ReelWatchService : AccessibilityService() {
         private const val CLIPBOARD_POLL_MS = 250L
         private const val CLIPBOARD_CONFIRM_BUDGET_MS = 5000L
         private const val FOCUS_TIMEOUT_MS = 420L
+        private const val SHEET_BACK_FOCUS_DELAY_MS = 120L
+        private const val SHEET_BACK_VERIFY_MS = 250L
 
         @Volatile
         private var instance: ReelWatchService? = null
