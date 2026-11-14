@@ -1,6 +1,6 @@
 {
-  "version": "1.80",
-  "versionCode": 80,
+  "version": "1.81",
+  "versionCode": 81,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.80: adds fallback downloading for Instagram photo posts, including image media, while preserving the existing Reel/video resolution and save flow."
+  "changelog": "IG SAVE 1.81: adds a public Instagram post-image metadata fallback when the image resolver is unavailable, keeps Reels/video on their existing path, and reports image-source failures accurately."
 }

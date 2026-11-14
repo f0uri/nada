@@ -272,13 +272,13 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_80():
+def test_version_bumped_to_81():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 80" in gradle
-    assert 'versionName = "1.80"' in gradle
+    assert "versionCode = 81" in gradle
+    assert 'versionName = "1.81"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.80"
-    assert manifest["versionCode"] == 80
+    assert manifest["version"] == "1.81"
+    assert manifest["versionCode"] == 81
 
 
 # ---------------------------------------------------------------------------
@@ -329,6 +329,29 @@ def test_photo_post_fallback_is_image_only_and_keeps_video_contract():
     service = read(JAVA / "QuickSaveService.kt")
     assert "writeRemote(file)" in service
     assert "storeBytes(body.byteStream(), file.name, file.mime)" in service
+
+
+def test_public_post_image_fallback_is_restricted_and_diagnostic():
+    ic = read(JAVA / "InstagramClient.kt")
+    prepare = ic.split("fun prepareSave(")[1].split("fun openMedia(")[0]
+    assert "if (!isPhotoPost(rawUrl)) throw videoError" in prepare
+    photo_guard = prepare.split("private fun isPhotoPost(")[1].split("private fun prepareImageSave(")[0]
+    assert 'parts[0].equals("p", ignoreCase = true)' in photo_guard
+    assert "SHORT_RE.matches(parts[1])" in photo_guard
+    assert "return prepareImageSave(rawUrl, diag)" in prepare
+    assert "quicksave image failed ($reason); trying public post metadata" in prepare
+    assert "resolvePublicPostImage(postUrl, shortcode, diag)" in prepare
+    assert r'Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE)' in prepare
+    assert 'setOf("og:image", "og:image:url", "twitter:image")' in prepare
+    assert "isSafeCdnImage(url)" in prepare
+    assert "MAX_POST_HTML_BYTES" in prepare
+    diag = read(JAVA / "DownloadDiagnostics.kt")
+    assert 'const val STEP_IMAGE = "image"' in diag
+    assert "imagePageDetail" in diag
+    assert '"instagram-page"' in diag
+    service = read(JAVA / "QuickSaveService.kt")
+    assert "diag.stage == DownloadDiagnostics.STEP_IMAGE" in service
+    assert "DownloadDiagnostics.STEP_LISTNR, DownloadDiagnostics.STEP_IMAGE" in service
 
 
 # ---------------------------------------------------------------------------
@@ -390,7 +413,8 @@ def test_listnr_failure_shows_its_real_status_and_message():
     )
     # The detail comes from the diagnostic (listnr's real status/message);
     # the mapped status is only the blank-fallback, never the shown value.
-    assert "diag.listnrDetail.ifBlank" in upstream_line
+    assert "resolveDetail.ifBlank" in upstream_line
+    assert "else {\n            diag.listnrDetail" in map_error
     assert "ex.status.toString()" not in upstream_line
     # The string carries the detail verbatim — no hardcoded "HTTP" doubling it.
     for values in ("values", "values-en", "values-fr"):
@@ -426,7 +450,7 @@ def test_download_failure_names_its_step():
     write_remote = src.split("private fun writeRemote(")[1].split("private fun saveStream(")[0]
     assert "STEP_CDN" in write_remote and "STEP_STORE" in write_remote
     unexpected = src.split("private fun unexpectedAt(")[1].split("private fun failWith(")[0]
-    for stage in ("STEP_LISTNR", "STEP_CDN", "STEP_STORE"):
+    for stage in ("STEP_LISTNR", "STEP_IMAGE", "STEP_CDN", "STEP_STORE"):
         assert stage in unexpected
     # The store step records the real write cause and the byte count.
     store = src.split("private fun storeBytes(")[1].split("private fun mapError(")[0]

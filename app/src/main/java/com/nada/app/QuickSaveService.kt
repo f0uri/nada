@@ -99,8 +99,8 @@ class QuickSaveService : Service() {
             return
         }
         goForeground(getString(R.string.save_stage_video), busy = true)
-        // Listnr is the only resolve source. A failure uses the existing error
-        // notification; there is no resolver retry chain or page-sniffing fallback.
+        // Keep Listnr first and the existing video fallback order. Public post
+        // image metadata is a final fallback only for /p/ photo posts.
         diag.begin(DownloadDiagnostics.STEP_LISTNR)
         val result = runCatching { instagram.prepareSave(job.url, diag) }
         result.fold(
@@ -255,14 +255,19 @@ class QuickSaveService : Service() {
     }
 
     private fun mapError(ex: InstagramClient.ApiException): String {
+        val resolveDetail = if (diag.stage == DownloadDiagnostics.STEP_IMAGE) {
+            diag.imagePageDetail.ifBlank { diag.quickSaveDetail.ifBlank { "image" } }
+        } else {
+            diag.listnrDetail
+        }
         return when (ex.code) {
             "url" -> getString(R.string.save_fail_url)
             "rate" -> getString(R.string.save_fail_rate)
             "missing", "empty", "blocked", "login" -> getString(R.string.save_fail_missing)
-            "network" -> getString(R.string.save_fail_resolve, diag.listnrDetail.ifBlank { "network" })
+            "network" -> getString(R.string.save_fail_resolve, resolveDetail.ifBlank { "network" })
             // Show listnr's real status/message ("HTTP 400: No video found"),
             // never the mapped 502 — that code hid the real cause (1.70).
-            "upstream" -> getString(R.string.save_fail_upstream, diag.listnrDetail.ifBlank { "HTTP ${ex.status}" })
+            "upstream" -> getString(R.string.save_fail_upstream, resolveDetail.ifBlank { "HTTP ${ex.status}" })
             "cdn", "host" -> getString(R.string.save_fail_cdn, diag.cdnDetail.ifBlank { ex.status.toString() })
             "store", "io" -> getString(R.string.save_fail_store, diag.storeDetail.ifBlank { "write" })
             "token", "expired" -> getString(R.string.save_fail_unexpected, ex.code)
@@ -275,7 +280,7 @@ class QuickSaveService : Service() {
     private fun unexpectedAt(stage: String, ex: Throwable): String {
         val detail = (ex.message ?: ex.javaClass.simpleName).take(48)
         return when (stage) {
-            DownloadDiagnostics.STEP_LISTNR -> getString(R.string.save_fail_resolve, detail)
+            DownloadDiagnostics.STEP_LISTNR, DownloadDiagnostics.STEP_IMAGE -> getString(R.string.save_fail_resolve, detail)
             DownloadDiagnostics.STEP_CDN -> getString(R.string.save_fail_cdn, detail)
             DownloadDiagnostics.STEP_STORE -> getString(R.string.save_fail_store, detail)
             else -> getString(R.string.save_fail_unexpected, stage)
