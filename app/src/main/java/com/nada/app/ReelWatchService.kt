@@ -58,6 +58,7 @@ class ReelWatchService : AccessibilityService() {
     private var copyTapped = false
     private var copyTappedAt = 0L
     @Volatile private var clipboardChangedAfterCopy = false
+    private var clipboardConfirmDeadline = 0L
     private var watchedClipboard: ClipboardManager? = null
     private var clipboardChangeListener: ClipboardManager.OnPrimaryClipChangedListener? = null
     private var copyClickFailed = false
@@ -125,6 +126,7 @@ class ReelWatchService : AccessibilityService() {
         copyTapped = false
         copyTappedAt = 0L
         clipboardChangedAfterCopy = false
+        clipboardConfirmDeadline = 0L
         copyClickFailed = false
         failStage = ""
         diag = BubbleDiagnostics()
@@ -383,10 +385,11 @@ class ReelWatchService : AccessibilityService() {
                 copyTapped = true
                 diag.copyTapped = true
                 copyTappedAt = System.currentTimeMillis()
-                // Wait for a fresh clipboard write before closing the sheet.
-                // Otherwise Back can race Instagram's Copy handler and leave
-                // the previous reel URL in the clipboard.
-                handler.postDelayed({ readClipboard() }, COPY_SETTLE_MS)
+                clipboardConfirmDeadline = copyTappedAt + CLIPBOARD_CONFIRM_BUDGET_MS
+                // Clipboard updates can arrive after Instagram shows its
+                // "Copied" toast. Poll the freshness signal for up to 5 s;
+                // never retry the click or close the sheet while waiting.
+                handler.postDelayed({ confirmCopiedLink() }, COPY_SETTLE_MS)
             }
             ShareNodes.Step.WAIT -> scheduleScan()
             ShareNodes.Step.GIVE_UP -> {
@@ -465,9 +468,35 @@ class ReelWatchService : AccessibilityService() {
         return false
     }
 
+    /** Wait for Instagram's asynchronous clipboard write, bounded to 5 s. */
+    private fun confirmCopiedLink() {
+        if (finished || clipboardTried || !copyTapped) return
+        if (hasFreshClipboardSignal()) {
+            diag.note("fresh clipboard signal confirmed")
+            readClipboard()
+            return
+        }
+        if (System.currentTimeMillis() < clipboardConfirmDeadline) {
+            handler.postDelayed({ confirmCopiedLink() }, CLIPBOARD_POLL_MS)
+            return
+        }
+        failStage = "copy_stale"
+        diag.note("Copy acted but clipboard did not refresh")
+        stopClipboardWatch()
+        needLink()
+    }
+
+    /** Metadata-only freshness probe; never reads or logs clipboard text. */
+    private fun hasFreshClipboardSignal(): Boolean {
+        if (clipboardChangedAfterCopy) return true
+        val manager = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
+        val stamped = runCatching { manager.primaryClip?.description?.timestamp ?: 0L }.getOrDefault(0L)
+        return stamped != 0L && stamped + CLIP_SKEW_MS >= copyTappedAt
+    }
+
     /**
-     * Terminal step, reached once per tap: read the clipboard, save the reel it
-     * holds, or show the single "copy the link first" toast.
+     * Terminal step, reached only after a fresh copy signal (or a non-copy
+     * failure). Saves the current link or shows the single short toast.
      */
     private fun readClipboard() {
         if (finished || clipboardTried) return
@@ -555,11 +584,8 @@ class ReelWatchService : AccessibilityService() {
             // not permission to reuse whatever reel URL was already there.
             if (copyTapped) {
                 val stamped = runCatching { clip.description?.timestamp ?: 0L }.getOrDefault(0L)
-                val fresh = if (stamped != 0L) {
-                    stamped + CLIP_SKEW_MS >= copyTappedAt
-                } else {
-                    clipboardChangedAfterCopy
-                }
+                val fresh = clipboardChangedAfterCopy ||
+                    (stamped != 0L && stamped + CLIP_SKEW_MS >= copyTappedAt)
                 if (!fresh) {
                     diag.note("clipboard not fresh after Copy tap")
                     return@runCatching ""
@@ -719,6 +745,8 @@ class ReelWatchService : AccessibilityService() {
         // row + list), so the click is allowed to climb further up the tree.
         private const val CLICK_PARENT_HOPS = 8
         private const val COPY_SETTLE_MS = 500L
+        private const val CLIPBOARD_POLL_MS = 250L
+        private const val CLIPBOARD_CONFIRM_BUDGET_MS = 5000L
         private const val CLIP_SKEW_MS = 1500L
         private const val FOCUS_TIMEOUT_MS = 420L
 

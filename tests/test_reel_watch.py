@@ -658,15 +658,23 @@ def test_stale_clipboard_cannot_download_the_wrong_reel():
     assert copy_branch.index("watchClipboardForCopy()") < copy_branch.index("click(copy.node")
     assert "stopClipboardWatch()" in copy_branch
     assert "copyTappedAt = System.currentTimeMillis()" in copy_branch
+    assert "clipboardConfirmDeadline = copyTappedAt + CLIPBOARD_CONFIRM_BUDGET_MS" in copy_branch
+    assert "confirmCopiedLink()" in copy_branch
+    confirm = _span(src, "private fun confirmCopiedLink()")
+    assert "hasFreshClipboardSignal()" in confirm
+    assert "CLIPBOARD_POLL_MS" in confirm
+    assert "clipboard did not refresh" in confirm
+    assert 'private const val CLIPBOARD_CONFIRM_BUDGET_MS = 5000L' in src
+    assert 'private const val CLIPBOARD_POLL_MS = 250L' in src
     read_clip = _span(src, "private fun readClipboard()")
     assert 'if (!copyTapped)' in read_clip
     assert 'clipboard ignored: Copy action not confirmed' in read_clip
     assert "clipboardChangedAfterCopy" in src
     assert "addPrimaryClipChangedListener" in src
     assert "removePrimaryClipChangedListener" in src
-    assert "val fresh = if (stamped != 0L)" in src
+    assert "return stamped != 0L && stamped + CLIP_SKEW_MS >= copyTappedAt" in src
+    assert "val fresh = clipboardChangedAfterCopy ||" in src
     assert "stamped + CLIP_SKEW_MS >= copyTappedAt" in src
-    assert "clipboardChangedAfterCopy" in src
     assert "if (!fresh)" in src
     assert 'clipboard not fresh after Copy tap' in src
 
