@@ -272,13 +272,13 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_82():
+def test_version_bumped_to_83():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 82" in gradle
-    assert 'versionName = "1.82"' in gradle
+    assert "versionCode = 83" in gradle
+    assert 'versionName = "1.83"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.82"
-    assert manifest["versionCode"] == 82
+    assert manifest["version"] == "1.83"
+    assert manifest["versionCode"] == 83
 
 
 # ---------------------------------------------------------------------------
@@ -357,6 +357,30 @@ def test_public_post_image_fallback_is_restricted_and_diagnostic():
     service = read(JAVA / "QuickSaveService.kt")
     assert "diag.stage == DownloadDiagnostics.STEP_IMAGE" in service
     assert "DownloadDiagnostics.STEP_LISTNR, DownloadDiagnostics.STEP_IMAGE" in service
+
+
+def test_profile_lookup_recovers_bio_posts_and_unicode_text():
+    ic = read(JAVA / "InstagramClient.kt")
+    ig_get = ic.split("private fun igGet(")[1].split("private fun parseUsername(")[0]
+    assert '"x-asbd-id", "359341"' in ig_get
+    assert "catch (_: IOException)" in ig_get
+    profile = ic.split("fun profile(raw: String)")[1].split("fun morePosts(")[0]
+    assert "extractUserBio(resolved).isBlank()" in profile
+    assert "resolved.optString(\"id\").isBlank()" in profile
+    html = ic.split("private fun profileUserFromHtml(")[1].split("private fun mergeProfileUser(")[0]
+    assert "profileMetaContent(html, \"og:description\")" in html
+    assert "extractHtmlProfileBio(raw, desc)" in html
+    assert "extractHtmlProfileUserId(raw)" in html
+    assert "profilePage_(\\\\d+)" in html
+    assert "raw_text" in html
+    bio = ic.split("private fun extractUserBio(")[1].split("private fun composeProfileBio(")[0]
+    assert "biography_with_entities" in bio
+    posts = ic.split("private fun fetchUserPosts(")[1].split("private fun packGridItem(")[0]
+    assert 'api/v1/feed/user/$userId/?$q' in posts
+    assert '"https://www.instagram.com/${user.optString(\"username\")}/"' in posts
+    normalization = ic.split("private fun normalizeProfileText(")[1].split("private fun hostOk(")[0]
+    assert '"windows-1252"' in normalization
+    assert "newDecoder()" in normalization and "decodeEntities" in normalization
 
 
 # ---------------------------------------------------------------------------
