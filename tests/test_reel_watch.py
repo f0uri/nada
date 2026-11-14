@@ -69,13 +69,17 @@ def test_service_is_off_by_default():
     assert "getBoolean(REEL_WATCH, false)" in src
 
 
-def test_bubble_keeps_legacy_path_when_feature_is_off():
+def test_bubble_keeps_legacy_path_only_when_feature_is_off():
     src = read(JAVA / "BubbleService.kt")
     body = src.split("private fun saveInBackground()")[1].split("private fun refreshNotification")[0]
-    assert "if (Prefs.reelWatchOn(this) && ReelWatchService.takeBubbleTap()) return" in body
-    # The original three-step fallback must still be there, in order.
-    assert body.index("QuickSaveActivity.intent(this)") < body.index("QuickSaveService.start(this, last)")
-    assert body.index("QuickSaveService.start(this, last)") < body.index("QuickSaveService.notifyNeedLink(this)")
+    assert "if (Prefs.reelWatchOn(this))" in body
+    assert "if (!ReelWatchService.takeBubbleTap()) QuickSaveService.notifyNeedLink(this)" in body
+    assert body.index("if (Prefs.reelWatchOn(this))") < body.index("val last = Prefs.lastIgUrl(this)")
+    # The original clipboard/last-URL fallback remains unchanged after the
+    # feature-off branch.
+    legacy = body.split("val last = Prefs.lastIgUrl(this)", 1)[1]
+    assert legacy.index("QuickSaveActivity.intent(this)") < legacy.index("QuickSaveService.start(this, last)")
+    assert legacy.index("QuickSaveService.start(this, last)") < legacy.index("QuickSaveService.notifyNeedLink(this)")
 
 
 # --------------------------------------------------------------------------
@@ -304,12 +308,14 @@ def test_sheet_closes_only_after_fresh_clip_is_confirmed():
     save = _span(src, "private fun save(url: String)")
     dismiss = _span(src, "private fun dismissShareSheet(")
     assert "save(link)" in read_clip
-    assert "dismissShareSheet { persistDiagnostics(\"saved\") }" in save
+    assert "dismissShareSheet()" in save
     assert save.index("dropFocusWindow()") < save.index("dismissShareSheet")
     assert "SHEET_BACK_FOCUS_DELAY_MS" in dismiss
     assert "isCopyControlVisible()" in dismiss
     assert "share sheet remained open; retrying Back once" in dismiss
     assert "performGlobalAction(GLOBAL_ACTION_BACK)" in dismiss
+    assert "generation == runGeneration" in dismiss
+    assert "runGeneration++" in src
     scan = _span(src, "private fun scan()")
     assert "performGlobalAction(GLOBAL_ACTION_BACK)" not in scan
 

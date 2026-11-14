@@ -155,9 +155,13 @@ class BubbleService : Service() {
     }
 
     private fun saveInBackground() {
-        // One-tap reel download: only when the user enabled it AND Instagram is
-        // the foreground app. Everywhere else the original behaviour is intact.
-        if (Prefs.reelWatchOn(this) && ReelWatchService.takeBubbleTap()) return
+        // With one-tap mode enabled, never fall through to QuickSaveActivity's
+        // last-URL fallback: if the accessibility service cannot own this tap,
+        // fail safely rather than downloading the previous reel again.
+        if (Prefs.reelWatchOn(this)) {
+            if (!ReelWatchService.takeBubbleTap()) QuickSaveService.notifyNeedLink(this)
+            return
+        }
         val last = Prefs.lastIgUrl(this)
         val started = runCatching { startActivity(QuickSaveActivity.intent(this)) }.isSuccess
         if (!started) {
