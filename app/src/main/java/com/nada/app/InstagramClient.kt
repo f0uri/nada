@@ -8,6 +8,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -18,12 +20,10 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * Public-reel/post media is resolved through ListnrService first; when
- * listnr cannot find the video, quicksave.my is the fallback — the same
- * fallback Reel Checker already uses (1.71). Profile metadata is a separate
- * feature and still uses web_profile_info, with public profile HTML only as
- * a metadata fallback. No media URL is ever extracted from profile/feed/
- * story responses.
+ * Video media is resolved through ListnrService first; quicksave.my remains
+ * the video fallback. For /p/ photo posts only, public post image metadata is
+ * the final fallback after video/image resolvers fail. Profile metadata is a
+ * separate feature and no media URL is extracted from profile/feed/story data.
  */
 class InstagramClient {
     private val secret = "nada-dew-glass-2026".toByteArray(StandardCharsets.UTF_8)
@@ -48,6 +48,10 @@ class InstagramClient {
         .followRedirects(false)
         .followSslRedirects(false)
         .callTimeout(12, TimeUnit.SECONDS)
+        .build()
+    private val postPageClient = client.newBuilder()
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
     private val downloadClient = client.newBuilder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -122,10 +126,12 @@ class InstagramClient {
         val post = try {
             resolve(rawUrl, diag)
         } catch (videoError: ApiException) {
+            if (!isPhotoPost(rawUrl)) throw videoError
             try {
                 return prepareImageSave(rawUrl, diag)
-            } catch (_: Exception) {
-                throw videoError
+            } catch (imageError: Exception) {
+                diag?.note("video resolve failed (${videoError.code}); image resolve failed")
+                throw imageError
             }
         }
         val media = post.optJSONArray("media") ?: JSONArray()
@@ -140,21 +146,172 @@ class InstagramClient {
             val mime = item.optString("mime").ifBlank { "video/mp4" }
             files += SaveFile(remote, "instagram_${safeFilePart(code)}_${i + 1}.$ext", mime)
         }
-        if (files.isEmpty()) return prepareImageSave(rawUrl, diag)
+        if (files.isEmpty()) {
+            if (!isPhotoPost(rawUrl)) throw ApiException(404, "empty")
+            return prepareImageSave(rawUrl, diag)
+        }
         val kind = if (files.any { it.mime.startsWith("image/") }) "photo" else post.optString("kind")
         return SaveBatch("instagram", kind, files)
     }
 
+    private fun isPhotoPost(rawUrl: String): Boolean {
+        val normalized = runCatching { pageUrl(rawUrl) }.getOrDefault(rawUrl)
+        val parts = normalized.toHttpUrlOrNull()?.encodedPath.orEmpty().split('/').filter { it.isNotBlank() }
+        return parts.size >= 2 && parts[0].equals("p", ignoreCase = true) && SHORT_RE.matches(parts[1])
+    }
+
     private fun prepareImageSave(rawUrl: String, diag: DownloadDiagnostics?): SaveBatch {
+        diag?.begin(DownloadDiagnostics.STEP_IMAGE)
         val shortcode = parseShortcode(rawUrl)
-        val image = quickSave.resolveImage("https://www.instagram.com/p/$shortcode/", diag)
-        if (!hostOk(image.url)) throw ApiException(400, "host")
-        diag?.viaQuickSave = true
-        return SaveBatch(
-            "instagram",
-            "photo",
-            listOf(SaveFile(image.url, "instagram_${safeFilePart(shortcode)}_1.${image.extension}", image.mime)),
-        )
+        val postUrl = "https://www.instagram.com/p/$shortcode/"
+        val file = try {
+            val image = quickSave.resolveImage(postUrl, diag)
+            if (!hostOk(image.url)) throw ApiException(400, "host")
+            diag?.viaQuickSave = true
+            SaveFile(image.url, "instagram_${safeFilePart(shortcode)}_1.${image.extension}", image.mime)
+        } catch (quickSaveError: Exception) {
+            val reason = (quickSaveError as? ApiException)?.code ?: quickSaveError.javaClass.simpleName
+            diag?.note("quicksave image failed ($reason); trying public post metadata")
+            resolvePublicPostImage(postUrl, shortcode, diag)
+        }
+        return SaveBatch("instagram", "photo", listOf(file))
+    }
+
+    private fun executePublicPostPage(rawUrl: String): okhttp3.Response {
+        var current = rawUrl.toHttpUrlOrNull() ?: throw ApiException(400, "url")
+        repeat(4) {
+            if (!IgLinks.isFetchableIg(current.toString())) throw ApiException(400, "host")
+            val request = Request.Builder()
+                .url(current)
+                .header("User-Agent", UA)
+                .header("Accept", "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Language", "ar,en-US;q=0.8,en;q=0.6")
+                .header("Referer", "https://www.instagram.com/")
+                .get()
+                .build()
+            val response = postPageClient.newCall(request).execute()
+            if (!response.isRedirect) return response
+            val location = response.header("Location").orEmpty()
+            val next = current.resolve(location)
+            response.close()
+            if (location.isBlank() || next == null || !IgLinks.isFetchableIg(next.toString())) {
+                throw ApiException(404, "blocked")
+            }
+            current = next
+        }
+        throw ApiException(502, "upstream")
+    }
+
+    private fun resolvePublicPostImage(postUrl: String, shortcode: String, diag: DownloadDiagnostics?): SaveFile {
+        try {
+            executePublicPostPage(postUrl).use { response ->
+                val code = response.code
+                if (code == 429) {
+                    diag?.imagePageDetail = "HTTP 429"
+                    throw ApiException(429, "rate")
+                }
+                if (!response.isSuccessful) {
+                    diag?.imagePageDetail = "HTTP $code"
+                    throw ApiException(if (code == 404) 404 else 502, if (code == 404) "missing" else "upstream")
+                }
+                val landed = response.request.url
+                val path = landed.encodedPath.lowercase(Locale.US)
+                if (!IgLinks.isFetchableIg(landed.toString()) || IgLinks.shortcodeFrom(landed.toString()) != shortcode ||
+                    path.contains("/accounts/login") || path.startsWith("/login")) {
+                    diag?.imagePageDetail = "login or non-Instagram redirect"
+                    throw ApiException(404, "blocked")
+                }
+                val body = response.body ?: run {
+                    diag?.imagePageDetail = "empty response"
+                    throw ApiException(404, "empty")
+                }
+                if (body.contentLength() > MAX_POST_HTML_BYTES) {
+                    diag?.imagePageDetail = "page too large"
+                    throw ApiException(502, "upstream")
+                }
+                val html = readBounded(body.byteStream(), MAX_POST_HTML_BYTES)
+                val imageUrl = extractPublicImageUrl(html)
+                if (imageUrl.isBlank() || !isSafeCdnImage(imageUrl)) {
+                    diag?.imagePageDetail = "no allowed public image metadata"
+                    throw ApiException(404, "empty")
+                }
+                val extension = imageExtension(imageUrl)
+                val mime = when (extension) {
+                    "png" -> "image/png"
+                    "webp" -> "image/webp"
+                    else -> "image/jpeg"
+                }
+                diag?.imagePageDetail = "public image metadata found"
+                diag?.viaInstagramPage = true
+                diag?.note("public post image metadata accepted")
+                return SaveFile(
+                    imageUrl,
+                    "instagram_${safeFilePart(shortcode)}_1.$extension",
+                    mime,
+                )
+            }
+        } catch (ex: ApiException) {
+            if (diag?.imagePageDetail.isNullOrBlank()) diag?.imagePageDetail = ex.code
+            throw ex
+        } catch (ex: IOException) {
+            val kind = DownloadDiagnostics.classify(ex)
+            diag?.imagePageDetail = kind
+            diag?.note("public post image page $kind")
+            throw ApiException(502, "network")
+        } catch (ex: Exception) {
+            diag?.imagePageDetail = "error: ${ex.javaClass.simpleName}"
+            throw ApiException(502, "upstream")
+        }
+    }
+
+    private fun extractPublicImageUrl(html: String): String {
+        val metaTags = Regex("""<meta\b[^>]*>""", RegexOption.IGNORE_CASE).findAll(html)
+        for (match in metaTags) {
+            val tag = match.value
+            val property = htmlAttribute(tag, "property") ?: htmlAttribute(tag, "name") ?: continue
+            if (property !in setOf("og:image", "og:image:url", "twitter:image")) continue
+            val content = htmlAttribute(tag, "content") ?: continue
+            val url = unescapeJson(content)
+            if (isSafeCdnImage(url)) return url
+        }
+        val displayUrl = Regex("\"display_url\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
+            .find(html)?.groupValues?.get(1)?.let { unescapeJson(it) }.orEmpty()
+        return displayUrl.takeIf { isSafeCdnImage(it) }.orEmpty()
+    }
+
+    private fun htmlAttribute(tag: String, name: String): String? {
+        val pattern = Regex("""(?:^|\s)$name\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""", RegexOption.IGNORE_CASE)
+        val match = pattern.find(tag) ?: return null
+        return (match.groupValues[1].ifBlank { match.groupValues[2] }.ifBlank { match.groupValues[3] })
+            .let { decodeEntities(it).trim() }
+    }
+
+    private fun isSafeCdnImage(url: String): Boolean {
+        val parsed = url.toHttpUrlOrNull() ?: return false
+        return parsed.isHttps && parsed.port == 443 && parsed.username.isEmpty() && parsed.password.isEmpty() && hostOk(url)
+    }
+
+    private fun imageExtension(url: String): String {
+        val path = url.toHttpUrlOrNull()?.encodedPath.orEmpty().lowercase(Locale.US)
+        return when {
+            path.endsWith(".png") -> "png"
+            path.endsWith(".webp") -> "webp"
+            else -> "jpg"
+        }
+    }
+
+    private fun readBounded(input: java.io.InputStream, maxBytes: Int): String {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > maxBytes) throw ApiException(502, "upstream")
+            output.write(buffer, 0, count)
+        }
+        return String(output.toByteArray(), StandardCharsets.UTF_8)
     }
 
     fun openMedia(token: String): MediaStream = pullFile(unsignUrl(token))
@@ -581,6 +738,7 @@ class InstagramClient {
         )
         private val RESERVED = setOf("p", "reel", "reels", "tv", "stories", "explore", "accounts", "about", "legal", "privacy", "terms", "lite", "share", "s")
         private const val MAX_CDN_ATTEMPTS = 2
+        private const val MAX_POST_HTML_BYTES = 4 * 1024 * 1024
         private val ALLOWED = listOf("cdninstagram.com", "fbcdn.net", "cdninstagram.net", "fbsbx.com")
     }
 }

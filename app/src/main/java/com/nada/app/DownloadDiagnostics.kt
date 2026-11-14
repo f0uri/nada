@@ -28,6 +28,9 @@ class DownloadDiagnostics {
     /** Bounded outcome of the quicksave fallback; never contains a URL. */
     var quickSaveDetail: String = ""
 
+    /** Public post-page metadata fallback result; never contains a media URL. */
+    var imagePageDetail: String = ""
+
     /** CDN host only (no path, no query). */
     var cdnHost: String = ""
     var cdnDetail: String = ""
@@ -36,8 +39,9 @@ class DownloadDiagnostics {
     var storeDetail: String = ""
     var bytes: Long = 0L
 
-    /** True when the video came from the quicksave fallback, not listnr. */
+    /** True when media came from one of the non-primary resolvers. */
     var viaQuickSave: Boolean = false
+    var viaInstagramPage: Boolean = false
 
     val steps = ArrayList<String>()
     val notes = ArrayList<String>()
@@ -66,11 +70,12 @@ class DownloadDiagnostics {
         append(" outcome=").append(outcome.ifBlank { "running" })
         append(" listnr=").append(listnrDetail.ifBlank { "-" })
         append(" quicksave=").append(quickSaveDetail.ifBlank { "-" })
+        append(" image_page=").append(imagePageDetail.ifBlank { "-" })
         append(" cdn=").append(cdnHost.ifBlank { "-" })
         if (cdnDetail.isNotBlank()) append(' ').append(cdnDetail)
         append(" bytes=").append(bytes)
         append(" ms=").append(elapsedMs)
-        append(" via=").append(if (viaQuickSave) "quicksave" else "listnr")
+        append(" via=").append(sourceName())
     }
 
     /** Multi-line report for download-last-run.txt (shareable). */
@@ -81,7 +86,8 @@ class DownloadDiagnostics {
         append("outcome=").append(outcome.ifBlank { "running" }).append('\n')
         append("listnr=").append(listnrDetail.ifBlank { "-" }).append('\n')
         append("quicksave=").append(quickSaveDetail.ifBlank { "-" }).append('\n')
-        append("via=").append(if (viaQuickSave) "quicksave" else "listnr").append('\n')
+        append("image_page=").append(imagePageDetail.ifBlank { "-" }).append('\n')
+        append("via=").append(sourceName()).append('\n')
         append("cdn=").append(cdnHost.ifBlank { "-" })
         if (cdnDetail.isNotBlank()) append(' ').append(cdnDetail)
         append('\n')
@@ -92,12 +98,19 @@ class DownloadDiagnostics {
         for (note in notes) append("note: ").append(note).append('\n')
     }
 
+    private fun sourceName(): String = when {
+        viaInstagramPage -> "instagram-page"
+        viaQuickSave -> "quicksave"
+        else -> "listnr"
+    }
+
     companion object {
         const val FILE_NAME = "download-last-run.txt"
         const val PREFS = "nada_download_debug"
         const val KEY = "last_run"
         const val STEP_START = "start"
         const val STEP_LISTNR = "listnr"
+        const val STEP_IMAGE = "image"
         const val STEP_CDN = "cdn"
         const val STEP_STORE = "store"
         const val MAX_STEPS = 24

@@ -129,7 +129,7 @@ class QuickSaveFallback(
                     diag?.note("quicksave image HTTP ${response.code}")
                     throw when (response.code) {
                         404 -> InstagramClient.ApiException(404, "missing")
-                        429, 403 -> InstagramClient.ApiException(429, "rate")
+                        429 -> InstagramClient.ApiException(429, "rate")
                         else -> InstagramClient.ApiException(502, "upstream")
                     }
                 }
