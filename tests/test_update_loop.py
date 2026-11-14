@@ -261,8 +261,8 @@ def test_protected_files_untouched():
         "app/src/main/java/com/nada/app/NadaServer.kt",
         "app/src/main/java/com/nada/app/PageMediaSniffer.kt",
         "app/src/main/java/com/nada/app/BannerAds.kt",
-        # 1.60 owns the bubble files, so they are no longer protected here.
-        "app/src/main/java/com/nada/app/BubbleService.kt",
+        # 1.79 intentionally updates BubbleService to stop stale-URL fallback
+        # when one-tap reel mode is enabled.
         # 1.68/1.71 own the download pipeline and listnr-first fallback.
         # 1.63 owns the trilingual WebView work, and 1.73 owns responsive
         # About-card wrapping, so styles.css is no longer protected here.
