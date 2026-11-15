@@ -40,8 +40,16 @@ class QuickSaveActivity : Activity() {
     private fun handOff() {
         if (handed || isFinishing) return
         handed = true
-        val url = IgLinks.fromText(clipText()).ifBlank { Prefs.lastIgUrl(this) }
-        if (url.isBlank()) {
+        val url = IgLinks.fromText(clipText())
+        val previous = Prefs.lastIgUrl(this)
+        val currentCode = IgLinks.shortcodeFrom(url)
+        val previousCode = IgLinks.shortcodeFrom(previous)
+        val isRepeated = url.isNotBlank() && (
+            (currentCode != null && currentCode == previousCode) ||
+                (currentCode == null && url == previous)
+            )
+        if (url.isBlank() || isRepeated) {
+            // An empty or unchanged clipboard is not a request to save the old Reel.
             QuickSaveService.notifyNeedLink(this)
         } else {
             Prefs.setLastIgUrl(this, url)

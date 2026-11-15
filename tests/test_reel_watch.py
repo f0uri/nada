@@ -69,17 +69,23 @@ def test_service_is_off_by_default():
     assert "getBoolean(REEL_WATCH, false)" in src
 
 
-def test_bubble_keeps_legacy_path_only_when_feature_is_off():
-    src = read(JAVA / "BubbleService.kt")
-    body = src.split("private fun saveInBackground()")[1].split("private fun refreshNotification")[0]
+def test_bubble_never_reuses_a_previous_reel_url():
+    bubble = read(JAVA / "BubbleService.kt")
+    body = bubble.split("private fun saveInBackground()")[1].split("private fun refreshNotification")[0]
     assert "if (Prefs.reelWatchOn(this))" in body
     assert "if (!ReelWatchService.takeBubbleTap()) QuickSaveService.notifyNeedLink(this)" in body
-    assert body.index("if (Prefs.reelWatchOn(this))") < body.index("val last = Prefs.lastIgUrl(this)")
-    # The original clipboard/last-URL fallback remains unchanged after the
-    # feature-off branch.
-    legacy = body.split("val last = Prefs.lastIgUrl(this)", 1)[1]
-    assert legacy.index("QuickSaveActivity.intent(this)") < legacy.index("QuickSaveService.start(this, last)")
-    assert legacy.index("QuickSaveService.start(this, last)") < legacy.index("QuickSaveService.notifyNeedLink(this)")
+    assert "QuickSaveActivity.intent(this)" in body
+    assert "Prefs.lastIgUrl(this)" not in body
+    assert "QuickSaveService.start(this, last)" not in body
+
+    activity = read(JAVA / "QuickSaveActivity.kt")
+    handoff = activity.split("private fun handOff()")[1].split("private fun clipText()")[0]
+    assert "IgLinks.fromText(clipText())" in handoff
+    assert "Prefs.lastIgUrl(this)" in handoff
+    assert "currentCode == previousCode" in handoff
+    assert "if (url.isBlank() || isRepeated)" in handoff
+    assert "QuickSaveService.start(this, url)" in handoff
+    assert "QuickSaveService.start(this, previous)" not in handoff
 
 
 # --------------------------------------------------------------------------
@@ -126,6 +132,16 @@ def test_at_most_one_share_tap_and_one_copy_tap():
     # Bounded run: a deadline, a scan cap and a node cap.
     for token in ("RUN_BUDGET_MS", "MAX_SCANS", "MAX_NODES", "MAX_DEPTH"):
         assert token in src
+
+
+def test_empty_initial_accessibility_tree_retries_before_failing():
+    src = read(JAVA / "ReelWatchService.kt")
+    scan = src.split("private fun scan()")[1].split("private fun retryOrGiveUp()")[0]
+    give_up = scan.split("ShareNodes.Step.GIVE_UP ->")[1].split("            }", 1)[0]
+    assert 'failStage = "no_share"' in give_up
+    assert "retryOrGiveUp()" in give_up
+    assert "readClipboard()" not in give_up
+    assert "private const val RUN_BUDGET_MS = 7000L" in src
 
 
 def test_click_refuses_non_instagram_nodes():
@@ -175,15 +191,13 @@ def test_resolver_and_protected_files_untouched():
         "app/src/main/java/com/nada/app/PageMediaSniffer.kt",
         "app/src/main/java/com/nada/app/BannerAds.kt",
         # 1.68/1.71 own the download pipeline and listnr-first quicksave
-        # fallback. The original activity / URL-normalization boundaries below
-        # remain protected from unrelated bubble and About-page work.
+        # fallback. Bubble handoff now intentionally rejects stale clipboard
+        # URLs; URL normalization and share-intent handling remain protected.
         "app/src/main/java/com/nada/app/IgLinks.kt",
-        "app/src/main/java/com/nada/app/QuickSaveActivity.kt",
         "app/src/main/java/com/nada/app/ShareCatcherActivity.kt",
         # 1.63 owns the trilingual WebView work, and 1.73 owns responsive
         # About-card wrapping, so styles.css is no longer protected here.
         "signing/nada.jks",
-        "server.py",
     }
     assert protected.isdisjoint(changed), sorted(protected & set(changed))
 

@@ -10,8 +10,8 @@ android {
         applicationId = "com.nada.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 83
-        versionName = "1.83"
+        versionCode = 84
+        versionName = "1.84"
         multiDexEnabled = true
     }
 

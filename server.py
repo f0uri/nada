@@ -393,7 +393,12 @@ GENERIC_BIO_RE = re.compile(
     r"^(See Instagram photos and videos|Create an account or log in)\b",
     re.I,
 )
-OG_STATS_RE = re.compile(r"\d[\d.,]*\s*[KMB]?\s*Followers", re.I)
+PROFILE_STAT_RE = re.compile(
+    r"([0-9٠-٩][0-9٠-٩.,٬٫]*\s*[KMB]?)\s*"
+    r"(followers?|following|posts?|متابع(?:ون|ين|ات)?|يتابع(?:ون)?|منشور(?:ات)?|"
+    r"abonnés?|abonnements?|publications?|seguidores|seguidos)",
+    re.I,
+)
 INSTAGRAM_QUOTE_RE = re.compile(r"on Instagram:\s*[\"“](.*)[\"”]\s*$", re.I | re.S)
 POSTS_TAIL_RE = re.compile(r"Posts\s*[-–—]\s*(.+)$", re.I | re.S)
 LOGIN_SLOGAN = "create an account or log in to instagram"
@@ -431,6 +436,23 @@ def is_generic_bio(text: str) -> bool:
     return LOGIN_SLOGAN in value.lower()
 
 
+def is_profile_stats_text(text: str) -> bool:
+    matches = list(PROFILE_STAT_RE.finditer(text or ""))
+    kinds = set()
+    for match in matches:
+        label = match.group(2).lower()
+        if label.startswith(("follower", "متابع", "abonné", "seguidores")):
+            kinds.add("followers")
+        elif label.startswith(("following", "يتابع", "abonnement", "seguidos")):
+            kinds.add("following")
+        else:
+            kinds.add("posts")
+    if len(kinds) >= 2:
+        return True
+    residue = PROFILE_STAT_RE.sub("", text or "").strip(" ,،·|-–")
+    return len(matches) == 1 and not residue
+
+
 def is_login_wall(html: str) -> bool:
     low = (html or "").lower()
     return LOGIN_SLOGAN in low or (
@@ -443,12 +465,12 @@ def extract_user_bio(user: dict[str, Any]) -> str:
     if isinstance(raw, dict):
         raw = raw.get("text") or raw.get("sensitive_string_value") or raw.get("raw_text") or ""
     bio = unescape_ig(raw if isinstance(raw, str) else "")
-    if bio and not is_generic_bio(bio):
+    if bio and not is_generic_bio(bio) and not is_profile_stats_text(bio):
         return bio
     nested = user.get("biography_with_entities")
     if isinstance(nested, dict):
         bio = unescape_ig(str(nested.get("raw_text") or ""))
-        if bio and not is_generic_bio(bio):
+        if bio and not is_generic_bio(bio) and not is_profile_stats_text(bio):
             return bio
     return ""
 
@@ -487,24 +509,22 @@ def compose_profile_bio(user: dict[str, Any]) -> str:
 
 def extract_og_bio(desc: str) -> str:
     text = decode_entities(desc or "").strip()
-    if not text:
+    if not text or is_profile_stats_text(text):
         return ""
     quoted = INSTAGRAM_QUOTE_RE.search(text)
     if quoted:
         inner = decode_entities(quoted.group(1)).strip()
-        return "" if is_generic_bio(inner) else inner
+        return "" if is_generic_bio(inner) or is_profile_stats_text(inner) else inner
     tail = POSTS_TAIL_RE.search(text)
     if tail:
         piece = tail.group(1).strip()
         quoted = INSTAGRAM_QUOTE_RE.search(piece)
         if quoted:
             inner = decode_entities(quoted.group(1)).strip()
-            return "" if is_generic_bio(inner) else inner
-        if is_generic_bio(piece) or re.match(r".+\(@[\w.]+\)\s*$", piece):
+            return "" if is_generic_bio(inner) or is_profile_stats_text(inner) else inner
+        if is_generic_bio(piece) or is_profile_stats_text(piece) or re.match(r".+\(@[\w.]+\)\s*$", piece):
             return ""
         return piece
-    if OG_STATS_RE.search(text):
-        return ""
     return "" if is_generic_bio(text) else text
 
 
@@ -515,7 +535,7 @@ def extract_html_bio(html: str) -> str:
     ):
         for match in re.finditer(pat, html or ""):
             bio = unescape_ig(match.group(1))
-            if bio and not is_generic_bio(bio):
+            if bio and not is_generic_bio(bio) and not is_profile_stats_text(bio):
                 return bio
     meta = re.search(r'name="description" content="([^"]*)"', html or "")
     if meta:
@@ -583,10 +603,15 @@ def merge_profile_user(user: dict[str, Any], extra: dict[str, Any]) -> None:
 
 
 def parse_og_stat(desc: str, label: str) -> int | None:
-    m = re.search(rf"([\d.,]+\s*[KMB]?)\s*{label}", desc or "", re.I)
+    labels = {
+        "Followers": r"Followers?|متابع(?:ون|ين|ات)?|abonnés?|seguidores",
+        "Following": r"Following|يتابع(?:ون)?|أتابع|abonnements?|seguidos",
+        "Posts": r"Posts?|منشور(?:ات)?|publications?",
+    }.get(label, re.escape(label))
+    m = re.search(rf"([0-9٠-٩][0-9٠-٩.,٬٫]*\s*[KMB]?)\s*(?:{labels})", desc or "", re.I)
     if not m:
         return None
-    raw = m.group(1).replace(",", "").replace(" ", "").upper()
+    raw = m.group(1).translate(str.maketrans("٠١٢٣٤٥٦٧٨٩٬٫", "0123456789,.")).replace(",", "").replace(" ", "").upper()
     n = re.match(r"^([\d.]+)([KMB])?$", raw)
     if not n:
         return None

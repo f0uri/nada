@@ -401,8 +401,11 @@ class ReelWatchService : AccessibilityService() {
             }
             ShareNodes.Step.WAIT -> scheduleScan()
             ShareNodes.Step.GIVE_UP -> {
+                // Instagram may expose the Reel controls a moment after the
+                // bubble tap. Retry within the existing bounded scan budget
+                // instead of abandoning Share on the first empty tree.
                 failStage = "no_share"
-                readClipboard()
+                retryOrGiveUp()
             }
         }
     }
