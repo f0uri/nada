@@ -1,6 +1,6 @@
 {
-  "version": "1.84",
-  "versionCode": 84,
+  "version": "1.85",
+  "versionCode": 85,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.84: prevents bubble downloads from reusing an old Reel link, retries briefly for Instagram's Share controls, and keeps profile follower/following/post counts out of bios."
+  "changelog": "IG SAVE 1.85: extracts profile bios separately from count metadata, fills missing profile counts from page data, recognizes Arabic count formats, and adds checks for key interface button handlers."
 }

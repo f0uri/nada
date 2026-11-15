@@ -113,7 +113,56 @@ def test_profile_statistics_stay_out_of_bio_and_parse_into_stat_fields():
     assert server.parse_og_stat(arabic, "Followers") == 12_500
     assert server.parse_og_stat(arabic, "Following") == 318
     assert server.parse_og_stat(arabic, "Posts") == 1_204
+    assert server.parse_og_stat("١٢٫٥ ألف متابعون", "Followers") == 12_500
+    assert server.parse_og_stat("12.5 ألف متابعون", "Followers") == 12_500
     assert server.extract_user_bio({"biography": english}) == ""
+    packed = server.pack_profile({"follower_count": 12_500, "following_count": 318, "media_count": 1_204, "biography": english})
+    assert (packed["followers"], packed["following"], packed["post_count"]) == (12_500, 318, 1_204)
+    assert packed["bio"] == ""
+    sparse = {"username": "sample", "full_name": "Sample", "id": "123"}
+    server.merge_profile_user(sparse, {
+        "biography": "A real bio",
+        "follower_count": 12_500,
+        "following_count": 318,
+        "media_count": 1_204,
+    })
+    merged = server.pack_profile(sparse)
+    assert (merged["followers"], merged["following"], merged["post_count"]) == (12_500, 318, 1_204)
+    assert merged["bio"] == "A real bio"
+    # A single quoted stat can slip past the full description's outer text.
+    quoted_stat = '1,500 Followers on Instagram: "1,500 Followers"'
+    assert server.extract_og_bio(quoted_stat) == ""
+    assert server.extract_og_bio('A real bio on Instagram: "Designer and traveler"') == "Designer and traveler"
+    with_counts = '12,500 Followers, 318 Following, 1,204 Posts on Instagram: "Designer and traveler"'
+    assert server.extract_og_bio(with_counts) == "Designer and traveler"
+
+
+def test_sparse_profile_data_uses_html_to_fill_missing_bio_and_counts(monkeypatch):
+    calls = []
+
+    async def web_profile(username):
+        return {"username": username, "full_name": "Sample", "id": "123", "biography": "Profile bio"}
+
+    async def profile_from_html(username):
+        calls.append(username)
+        return {
+            "username": username,
+            "full_name": "Sample",
+            "id": "123",
+            "biography": "Designer and traveler",
+            "follower_count": 12_500,
+            "following_count": 318,
+            "media_count": 1_204,
+        }
+
+    monkeypatch.setattr(server.ig, "web_profile", web_profile)
+    monkeypatch.setattr(server.ig, "profile_from_html", profile_from_html)
+    import asyncio
+    result = asyncio.run(server.ig.profile("sample"))
+    packed = server.pack_profile(result)
+    assert calls == ["sample"]
+    assert packed["bio"] == "Profile bio"
+    assert (packed["followers"], packed["following"], packed["post_count"]) == (12_500, 318, 1_204)
 
 
 def test_no_old_resolve_references_remain():

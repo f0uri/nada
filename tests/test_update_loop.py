@@ -271,13 +271,13 @@ def test_protected_files_untouched():
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_84():
+def test_version_bumped_to_85():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 84" in gradle
-    assert 'versionName = "1.84"' in gradle
+    assert "versionCode = 85" in gradle
+    assert 'versionName = "1.85"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.84"
-    assert manifest["versionCode"] == 84
+    assert manifest["version"] == "1.85"
+    assert manifest["versionCode"] == 85
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +358,45 @@ def test_public_post_image_fallback_is_restricted_and_diagnostic():
     assert "DownloadDiagnostics.STEP_LISTNR, DownloadDiagnostics.STEP_IMAGE" in service
 
 
+def test_static_buttons_have_explicit_action_handlers():
+    assets = APP / "assets"
+    sources = {name: read(assets / name) for name in ("app.js", "update.js", "reelwatch.js", "downloaddebug.js")}
+    bindings = {
+        "soundBtn": ("app.js", 'Z&&Z.addEventListener("click"'),
+        "themeBtn": ("app.js", 't("themeBtn").addEventListener("click"'),
+        "langBtn": ("app.js", 't("langBtn").addEventListener("click"'),
+        "clipGo": ("app.js", 't("clipGo").addEventListener("click"'),
+        "clipDismiss": ("app.js", 't("clipDismiss").addEventListener("click"'),
+        "urlClear": ("app.js", 'const J=W(s,"urlClear")'),
+        "pasteBtn": ("app.js", 't("pasteBtn").addEventListener("click"'),
+        "go": ("app.js", 'i.addEventListener("submit"'),
+        "userClear": ("app.js", 'W(t("username"),"userClear",G)'),
+        "profileGo": ("app.js", 't("profileForm").addEventListener("submit"'),
+        "dlAvatarBtn": ("app.js", 't("dlAvatarBtn").addEventListener("click"'),
+        "copyBioBtn": ("app.js", 't("copyBioBtn").addEventListener("click"'),
+        "dlStoriesBtn": ("app.js", 'Y&&Y.addEventListener("click"'),
+        "storyLoginBtn": ("app.js", 'ee.addEventListener("click"'),
+        "morePosts": ("app.js", 't("morePosts").addEventListener("click"'),
+        "backBtn": ("app.js", 't("backBtn").addEventListener("click"'),
+        "dlBtn": ("app.js", 't("dlBtn").addEventListener("click"'),
+        "dlAllBtn": ("app.js", 't("dlAllBtn").addEventListener("click"'),
+        "copyCapBtn": ("app.js", 't("copyCapBtn").addEventListener("click"'),
+        "updateCheckBtn": ("update.js", 'btn.onclick ='),
+        "bubbleBtn": ("app.js", 'ne.addEventListener("click"'),
+        "reelWatchBtn": ("reelwatch.js", 'btn.onclick ='),
+        "batteryBtn": ("app.js", 'oe.addEventListener("click"'),
+        "dhikrOk": ("app.js", 'de&&de.addEventListener("click"'),
+    }
+    html = read(APP / "assets" / "index.html")
+    for button_id, (source, marker) in bindings.items():
+        assert f'id="{button_id}"' in html, button_id
+        assert marker in sources[source], button_id
+    app_js = sources["app.js"]
+    assert 'document.querySelectorAll(".tab").forEach' in app_js
+    assert 't("libGrid").addEventListener("click"' in app_js
+    assert 't("profileGrid").addEventListener("click"' in app_js
+
+
 def test_profile_lookup_recovers_bio_posts_and_unicode_text():
     ic = read(JAVA / "InstagramClient.kt")
     ig_get = ic.split("private fun igGet(")[1].split("private fun parseUsername(")[0]
@@ -384,6 +423,15 @@ def test_profile_lookup_recovers_bio_posts_and_unicode_text():
     assert "followers?" in stats and "متابع" in stats and "following" in stats
     assert "extractProfileStat(normalizedDesc, labels)" in html
     assert "isProfileStatsText(biography)" in bio
+    assert "missingStats" in profile and "extractProfileStat(normalizedDesc, labels)" in html
+    quoted = ic.split("private fun extractOgProfileBio(")[1].split("private fun mergeProfileUser(")[0]
+    assert "isProfileStatsText(quoted)" in quoted
+    assert quoted.index("if (quoted.isNotBlank())") < quoted.index("if (isProfileStatsText(text))")
+    merge = ic.split("private fun mergeProfileUser(")[1].split("private fun extractUserBio(")[0]
+    for count in ("follower_count", "following_count", "media_count"):
+        assert count in merge
+    assert "profileCount(user, \"edge_followed_by\", \"follower_count\")" in ic
+    assert "directCount?.takeUnless { it == JSONObject.NULL }" in ic
 
 
 # ---------------------------------------------------------------------------
