@@ -676,10 +676,11 @@ class InstagramClient {
                 .replace(Regex("""\s*\(@?[^)]*\)\s*"""), "")
                 .replace("Instagram photos and videos", "", ignoreCase = true).trim().ifBlank { username }
             val normalizedDesc = normalizeProfileText(desc)
-            val stats = listOf("Followers", "Following", "Posts").map { label ->
-                Regex("""([\d.,]+\s*[KMB]?)\s*$label""", RegexOption.IGNORE_CASE)
-                    .find(normalizedDesc)?.groupValues?.get(1)?.let { parseCompactNumber(it) }
-            }
+            val stats = listOf(
+                listOf("Followers", "Follower", "متابعون", "متابعين", "abonnés", "seguidores"),
+                listOf("Following", "يتابع", "أتابع", "abonnements", "seguidos"),
+                listOf("Posts", "Post", "منشورات", "منشور", "publications"),
+            ).map { labels -> extractProfileStat(normalizedDesc, labels) }
             return JSONObject()
                 .put("username", username)
                 .put("full_name", name)
@@ -720,14 +721,14 @@ class InstagramClient {
         for (key in listOf("biography", "raw_text")) {
             val value = Regex("\"$key\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"")
                 .find(raw)?.groupValues?.get(1)?.let { normalizeProfileText(it) }.orEmpty()
-            if (value.isNotBlank()) return value
+            if (value.isNotBlank() && !isProfileStatsText(value)) return value
         }
         return extractOgProfileBio(description)
     }
 
     private fun extractOgProfileBio(raw: String): String {
         val text = normalizeProfileText(raw).trim()
-        if (text.isBlank()) return ""
+        if (text.isBlank() || isProfileStatsText(text)) return ""
         val quoted = Regex("""on Instagram:\s*["“](.*)["”]\s*$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
             .find(text)?.groupValues?.get(1)?.trim().orEmpty()
         if (quoted.isNotBlank()) return quoted
@@ -736,7 +737,7 @@ class InstagramClient {
         val candidate = tail.ifBlank { text }
         if (candidate.contains("See Instagram photos and videos", ignoreCase = true) ||
             candidate.contains("Create an account or log in", ignoreCase = true) ||
-            Regex("""\d[\d.,]*\s*[KMB]?\s*Followers""", RegexOption.IGNORE_CASE).containsMatchIn(candidate) ||
+            isProfileStatsText(candidate) ||
             Regex(""".+\(@?[\w.]+\)\s*$""").matches(candidate)) return ""
         return candidate
     }
@@ -759,9 +760,10 @@ class InstagramClient {
             is JSONObject -> normalizeProfileText(value.optString("text").ifBlank { value.optString("raw_text") })
             else -> ""
         }
-        if (biography.isNotBlank()) return biography
+        if (biography.isNotBlank() && !isProfileStatsText(biography)) return biography
         val entities = user.optJSONObject("biography_with_entities")
-        return normalizeProfileText(entities?.optString("raw_text").orEmpty())
+        val entityBio = normalizeProfileText(entities?.optString("raw_text").orEmpty())
+        return entityBio.takeUnless { isProfileStatsText(it) }.orEmpty()
     }
 
     private fun composeProfileBio(user: JSONObject): String {
@@ -777,8 +779,40 @@ class InstagramClient {
         return if (extras.isEmpty()) bio else if (bio.isBlank()) extras.joinToString("\n") else bio + "\n" + extras.joinToString("\n")
     }
 
+    private fun extractProfileStat(description: String, labels: List<String>): Long? {
+        val alternatives = labels.joinToString("|") { Regex.escape(it) }
+        val match = Regex("""([0-9٠-٩][0-9٠-٩.,٬٫]*\s*[KMB]?)\s*(?:$alternatives)""", RegexOption.IGNORE_CASE)
+            .find(description) ?: return null
+        return parseCompactNumber(match.groupValues[1])
+    }
+
+    private fun isProfileStatsText(text: String): Boolean {
+        val statPattern = Regex(
+            """([0-9٠-٩][0-9٠-٩.,٬٫]*\s*[KMB]?)\s*(followers?|following|posts?|متابع(?:ون|ين|ات)?|يتابع(?:ون)?|منشور(?:ات)?|abonnés?|abonnements?|publications?|seguidores|seguidos)""",
+            RegexOption.IGNORE_CASE,
+        )
+        val matches = statPattern.findAll(text).toList()
+        val kinds = matches.mapNotNull { match ->
+            when (match.groupValues[2].lowercase(Locale.US)) {
+                "follower", "followers", "متابع", "متابعون", "متابعين", "متابعات", "abonnés", "abonné", "seguidores" -> "followers"
+                "following", "يتابع", "يتابعون", "abonnements", "seguidos" -> "following"
+                else -> "posts"
+            }
+        }.toSet()
+        if (kinds.size >= 2) return true
+        val residue = statPattern.replace(text, "").trim().trim(',', '،', '·', '|', '-', '–')
+        return matches.size == 1 && residue.isBlank()
+    }
+
     private fun parseCompactNumber(raw: String): Long? {
-        val clean = raw.replace(",", "").replace(" ", "").uppercase(Locale.US)
+        val western = raw.map { char ->
+            when (char) {
+                in '٠'..'٩' -> ('0'.code + (char.code - '٠'.code)).toChar()
+                else -> char
+            }
+        }.joinToString("")
+        val clean = western.replace(",", "").replace("٬", "").replace("٫", ".")
+            .replace(" ", "").uppercase(Locale.US)
         val match = Regex("""^([\d.]+)([KMB])?$""").find(clean) ?: return null
         val n = match.groupValues[1].toDoubleOrNull() ?: return null
         val mul = when (match.groupValues[2]) { "K" -> 1e3; "M" -> 1e6; "B" -> 1e9; else -> 1.0 }

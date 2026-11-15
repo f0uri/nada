@@ -162,12 +162,10 @@ class BubbleService : Service() {
             if (!ReelWatchService.takeBubbleTap()) QuickSaveService.notifyNeedLink(this)
             return
         }
-        val last = Prefs.lastIgUrl(this)
+        // Never download Prefs.lastIgUrl here: it may belong to a previous Reel.
+        // The activity accepts only the link currently shared to the clipboard.
         val started = runCatching { startActivity(QuickSaveActivity.intent(this)) }.isSuccess
-        if (!started) {
-            if (last.isNotBlank()) QuickSaveService.start(this, last)
-            else QuickSaveService.notifyNeedLink(this)
-        }
+        if (!started) QuickSaveService.notifyNeedLink(this)
     }
 
     private fun refreshNotification(visible: Boolean) {

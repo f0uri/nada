@@ -267,18 +267,17 @@ def test_protected_files_untouched():
         # 1.63 owns the trilingual WebView work, and 1.73 owns responsive
         # About-card wrapping, so styles.css is no longer protected here.
         "signing/nada.jks",
-        "server.py",
     }
     assert protected.isdisjoint(changed), sorted(protected & changed)
 
 
-def test_version_bumped_to_83():
+def test_version_bumped_to_84():
     gradle = read(ROOT / "app" / "build.gradle.kts")
-    assert "versionCode = 83" in gradle
-    assert 'versionName = "1.83"' in gradle
+    assert "versionCode = 84" in gradle
+    assert 'versionName = "1.84"' in gradle
     manifest = json.loads(read(ROOT / "version.json"))
-    assert manifest["version"] == "1.83"
-    assert manifest["versionCode"] == 83
+    assert manifest["version"] == "1.84"
+    assert manifest["versionCode"] == 84
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +380,10 @@ def test_profile_lookup_recovers_bio_posts_and_unicode_text():
     normalization = ic.split("private fun normalizeProfileText(")[1].split("private fun hostOk(")[0]
     assert '"windows-1252"' in normalization
     assert "newDecoder()" in normalization and "decodeEntities" in normalization
+    stats = ic.split("private fun isProfileStatsText(")[1].split("private fun parseCompactNumber(")[0]
+    assert "followers?" in stats and "متابع" in stats and "following" in stats
+    assert "extractProfileStat(normalizedDesc, labels)" in html
+    assert "isProfileStatsText(biography)" in bio
 
 
 # ---------------------------------------------------------------------------

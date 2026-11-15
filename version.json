@@ -1,6 +1,6 @@
 {
-  "version": "1.83",
-  "versionCode": 83,
+  "version": "1.84",
+  "versionCode": 84,
   "apkUrl": "https://github.com/f0uri/nada/releases/latest/download/nada-debug.apk",
-  "changelog": "IG SAVE 1.83: improves public profile lookup for bios and post grids, recovers profile IDs from Instagram page metadata, and decodes numeric HTML entities and common mojibake in names and bios."
+  "changelog": "IG SAVE 1.84: prevents bubble downloads from reusing an old Reel link, retries briefly for Instagram's Share controls, and keeps profile follower/following/post counts out of bios."
 }

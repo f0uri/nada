@@ -101,6 +101,21 @@ def test_timeout_is_existing_error(monkeypatch):
     assert r.json()["error"] == "network"
 
 
+def test_profile_statistics_stay_out_of_bio_and_parse_into_stat_fields():
+    english = "12,500 Followers, 318 Following, 1,204 Posts - See Instagram photos and videos from Sample (@sample)"
+    assert server.extract_og_bio(english) == ""
+    assert server.parse_og_stat(english, "Followers") == 12_500
+    assert server.parse_og_stat(english, "Following") == 318
+    assert server.parse_og_stat(english, "Posts") == 1_204
+
+    arabic = "١٢٬٥٠٠ متابعون، ٣١٨ يتابع، ١٬٢٠٤ منشورات"
+    assert server.extract_og_bio(arabic) == ""
+    assert server.parse_og_stat(arabic, "Followers") == 12_500
+    assert server.parse_og_stat(arabic, "Following") == 318
+    assert server.parse_og_stat(arabic, "Posts") == 1_204
+    assert server.extract_user_bio({"biography": english}) == ""
+
+
 def test_no_old_resolve_references_remain():
     # Split literals so this guard itself does not reintroduce the forbidden strings.
     forbidden = (
