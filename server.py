@@ -149,7 +149,19 @@ class InstagramSession:
         user = await self.web_profile(username)
         if not user:
             user = await self.profile_from_html(username)
-        elif not extract_user_bio(user):
+        elif (
+            not extract_user_bio(user)
+            or not user.get("full_name")
+            or not (user.get("id") or user.get("pk"))
+            or any(
+                user.get(field) is None and (user.get(edge) or {}).get("count") is None
+                for field, edge in (
+                    ("follower_count", "edge_followed_by"),
+                    ("following_count", "edge_follow"),
+                    ("media_count", "edge_owner_to_timeline_media"),
+                )
+            )
+        ):
             try:
                 html_user = await self.profile_from_html(username)
             except HTTPException:
@@ -394,8 +406,8 @@ GENERIC_BIO_RE = re.compile(
     re.I,
 )
 PROFILE_STAT_RE = re.compile(
-    r"([0-9٠-٩][0-9٠-٩.,٬٫]*\s*[KMB]?)\s*"
-    r"(followers?|following|posts?|متابع(?:ون|ين|ات)?|يتابع(?:ون)?|منشور(?:ات)?|"
+    r"([0-9٠-٩][0-9٠-٩.,٬٫]*(?:\s*(?:[KMB]|ألف|مليون|مليار))?)\s*"
+    r"(followers?|following|posts?|متابع(?:ون|ين|ات)?|يتابع(?:ون)?|أتابع|منشور(?:ات)?|"
     r"abonnés?|abonnements?|publications?|seguidores|seguidos)",
     re.I,
 )
@@ -509,12 +521,14 @@ def compose_profile_bio(user: dict[str, Any]) -> str:
 
 def extract_og_bio(desc: str) -> str:
     text = decode_entities(desc or "").strip()
-    if not text or is_profile_stats_text(text):
+    if not text:
         return ""
     quoted = INSTAGRAM_QUOTE_RE.search(text)
     if quoted:
         inner = decode_entities(quoted.group(1)).strip()
         return "" if is_generic_bio(inner) or is_profile_stats_text(inner) else inner
+    if is_profile_stats_text(text):
+        return ""
     tail = POSTS_TAIL_RE.search(text)
     if tail:
         piece = tail.group(1).strip()
@@ -608,15 +622,19 @@ def parse_og_stat(desc: str, label: str) -> int | None:
         "Following": r"Following|يتابع(?:ون)?|أتابع|abonnements?|seguidos",
         "Posts": r"Posts?|منشور(?:ات)?|publications?",
     }.get(label, re.escape(label))
-    m = re.search(rf"([0-9٠-٩][0-9٠-٩.,٬٫]*\s*[KMB]?)\s*(?:{labels})", desc or "", re.I)
+    m = re.search(rf"([0-9٠-٩][0-9٠-٩.,٬٫]*(?:\s*(?:[KMB]|ألف|مليون|مليار))?)\s*(?:{labels})", desc or "", re.I)
     if not m:
         return None
     raw = m.group(1).translate(str.maketrans("٠١٢٣٤٥٦٧٨٩٬٫", "0123456789,.")).replace(",", "").replace(" ", "").upper()
-    n = re.match(r"^([\d.]+)([KMB])?$", raw)
+    n = re.match(r"^([\d.]+)([KMB]|ألف|مليون|مليار)?$", raw)
     if not n:
         return None
     base = float(n.group(1))
-    mul = {"K": 1_000, "M": 1_000_000, "B": 1_000_000_000}.get(n.group(2) or "", 1)
+    mul = {
+        "K": 1_000, "ألف": 1_000,
+        "M": 1_000_000, "مليون": 1_000_000,
+        "B": 1_000_000_000, "مليار": 1_000_000_000,
+    }.get(n.group(2) or "", 1)
     return int(base * mul)
 
 

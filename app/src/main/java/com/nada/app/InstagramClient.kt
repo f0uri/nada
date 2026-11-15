@@ -476,9 +476,17 @@ class InstagramClient {
             }
         }
         val resolved = user ?: profileUserFromHtml(username)
+        val missingStats = user != null && listOf(
+            "follower_count" to "edge_followed_by",
+            "following_count" to "edge_follow",
+            "media_count" to "edge_owner_to_timeline_media",
+        ).any { (field, edge) ->
+            resolved.isNull(field) && resolved.optJSONObject(edge)?.isNull("count") != false
+        }
         if (user != null && (extractUserBio(resolved).isBlank() ||
                 resolved.optString("full_name").isBlank() ||
-                resolved.optString("id").isBlank() && resolved.optString("pk").isBlank())) {
+                resolved.optString("id").isBlank() && resolved.optString("pk").isBlank() ||
+                missingStats)) {
             runCatching { profileUserFromHtml(username) }.getOrNull()?.let { mergeProfileUser(resolved, it) }
         }
         resolved.put("full_name", normalizeProfileText(resolved.optString("full_name")))
@@ -558,13 +566,20 @@ class InstagramClient {
         return text
     }
 
+    private fun profileCount(user: JSONObject, edgeKey: String, field: String): Any {
+        val edgeCount = user.optJSONObject(edgeKey)?.opt("count")
+        if (edgeCount != null && edgeCount != JSONObject.NULL) return edgeCount
+        val directCount = user.opt(field)
+        return directCount?.takeUnless { it == JSONObject.NULL } ?: JSONObject.NULL
+    }
+
     private fun packProfile(user: JSONObject): JSONObject {
         var avatar = user.optString("profile_pic_url_hd").ifBlank { user.optString("profile_pic_url") }
         if (avatar.isBlank()) avatar = user.optJSONObject("hd_profile_pic_url_info")?.optString("url").orEmpty()
         avatar = avatar.replace("\\u0026", "&")
-        val followers = user.optJSONObject("edge_followed_by")?.opt("count") ?: user.opt("follower_count")
-        val following = user.optJSONObject("edge_follow")?.opt("count") ?: user.opt("following_count")
-        val posts = user.optJSONObject("edge_owner_to_timeline_media")?.opt("count") ?: user.opt("media_count")
+        val followers = profileCount(user, "edge_followed_by", "follower_count")
+        val following = profileCount(user, "edge_follow", "following_count")
+        val posts = profileCount(user, "edge_owner_to_timeline_media", "media_count")
         return JSONObject()
             .put("ok", true)
             .put("username", user.optString("username"))
@@ -677,8 +692,8 @@ class InstagramClient {
                 .replace("Instagram photos and videos", "", ignoreCase = true).trim().ifBlank { username }
             val normalizedDesc = normalizeProfileText(desc)
             val stats = listOf(
-                listOf("Followers", "Follower", "متابعون", "متابعين", "abonnés", "seguidores"),
-                listOf("Following", "يتابع", "أتابع", "abonnements", "seguidos"),
+                listOf("Followers", "Follower", "متابع", "متابعون", "متابعين", "abonnés", "seguidores"),
+                listOf("Following", "يتابع", "يتابعون", "أتابع", "abonnements", "seguidos"),
                 listOf("Posts", "Post", "منشورات", "منشور", "publications"),
             ).map { labels -> extractProfileStat(normalizedDesc, labels) }
             return JSONObject()
@@ -728,10 +743,13 @@ class InstagramClient {
 
     private fun extractOgProfileBio(raw: String): String {
         val text = normalizeProfileText(raw).trim()
-        if (text.isBlank() || isProfileStatsText(text)) return ""
+        if (text.isBlank()) return ""
         val quoted = Regex("""on Instagram:\s*["“](.*)["”]\s*$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
             .find(text)?.groupValues?.get(1)?.trim().orEmpty()
-        if (quoted.isNotBlank()) return quoted
+        if (quoted.isNotBlank()) {
+            return if (isProfileStatsText(quoted)) "" else quoted
+        }
+        if (isProfileStatsText(text)) return ""
         val tail = Regex("""Posts\s*[-–—]\s*(.+)$""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
             .find(text)?.groupValues?.get(1)?.trim().orEmpty()
         val candidate = tail.ifBlank { text }
@@ -749,6 +767,9 @@ class InstagramClient {
         }
         for (key in listOf("full_name", "username", "profile_pic_url_hd", "profile_pic_url", "id", "pk")) {
             if (user.optString(key).isBlank() && extra.optString(key).isNotBlank()) user.put(key, extra.optString(key))
+        }
+        for (key in listOf("follower_count", "following_count", "media_count", "external_url")) {
+            if (user.isNull(key) && !extra.isNull(key)) user.put(key, extra.opt(key))
         }
         extra.optJSONArray("bio_links")?.let { user.put("bio_links", it) }
     }
@@ -781,21 +802,21 @@ class InstagramClient {
 
     private fun extractProfileStat(description: String, labels: List<String>): Long? {
         val alternatives = labels.joinToString("|") { Regex.escape(it) }
-        val match = Regex("""([0-9٠-٩][0-9٠-٩.,٬٫]*\s*[KMB]?)\s*(?:$alternatives)""", RegexOption.IGNORE_CASE)
+        val match = Regex("""([0-9٠-٩][0-9٠-٩.,٬٫]*(?:\s*(?:[KMB]|ألف|مليون|مليار))?)\s*(?:$alternatives)""", RegexOption.IGNORE_CASE)
             .find(description) ?: return null
         return parseCompactNumber(match.groupValues[1])
     }
 
     private fun isProfileStatsText(text: String): Boolean {
         val statPattern = Regex(
-            """([0-9٠-٩][0-9٠-٩.,٬٫]*\s*[KMB]?)\s*(followers?|following|posts?|متابع(?:ون|ين|ات)?|يتابع(?:ون)?|منشور(?:ات)?|abonnés?|abonnements?|publications?|seguidores|seguidos)""",
+            """([0-9٠-٩][0-9٠-٩.,٬٫]*(?:\s*(?:[KMB]|ألف|مليون|مليار))?)\s*(followers?|following|posts?|متابع(?:ون|ين|ات)?|يتابع(?:ون)?|أتابع|منشور(?:ات)?|abonnés?|abonnements?|publications?|seguidores|seguidos)""",
             RegexOption.IGNORE_CASE,
         )
         val matches = statPattern.findAll(text).toList()
         val kinds = matches.mapNotNull { match ->
             when (match.groupValues[2].lowercase(Locale.US)) {
                 "follower", "followers", "متابع", "متابعون", "متابعين", "متابعات", "abonnés", "abonné", "seguidores" -> "followers"
-                "following", "يتابع", "يتابعون", "abonnements", "seguidos" -> "following"
+                "following", "يتابع", "يتابعون", "أتابع", "abonnements", "seguidos" -> "following"
                 else -> "posts"
             }
         }.toSet()
@@ -813,9 +834,14 @@ class InstagramClient {
         }.joinToString("")
         val clean = western.replace(",", "").replace("٬", "").replace("٫", ".")
             .replace(" ", "").uppercase(Locale.US)
-        val match = Regex("""^([\d.]+)([KMB])?$""").find(clean) ?: return null
+        val match = Regex("""^([\d.]+)([KMB]|ألف|مليون|مليار)?$""").find(clean) ?: return null
         val n = match.groupValues[1].toDoubleOrNull() ?: return null
-        val mul = when (match.groupValues[2]) { "K" -> 1e3; "M" -> 1e6; "B" -> 1e9; else -> 1.0 }
+        val mul = when (match.groupValues[2]) {
+            "K", "ألف" -> 1e3
+            "M", "مليون" -> 1e6
+            "B", "مليار" -> 1e9
+            else -> 1.0
+        }
         return (n * mul).toLong()
     }
 
